@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/eclipse/paho.mqtt.golang"
+	"github.com/lucasb-eyer/go-colorful"
 )
 
 // Streamer that streams RGB data frames to an ledrx device.
@@ -16,6 +17,9 @@ type Streamer struct {
 func NewStreamer(client mqtt.Client) *Streamer {
 	s := new(Streamer)
 	s.client = client
+
+	backColour, _ := colorful.Hex("#100505") // ("#000005")
+	s.animation = NewTwinkle(s.client, 60, backColour)
 
 	gradient := GradientTable{
 		{0.0, 0.0},
@@ -30,6 +34,8 @@ func NewStreamer(client mqtt.Client) *Streamer {
 		{360.0, 1.0}, // Pink wrap
 	}
 	s.animation = NewGradientTrail(s.client, gradient, 200)
+
+
 
 	return s
 }
