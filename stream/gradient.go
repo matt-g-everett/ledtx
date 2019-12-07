@@ -23,5 +23,5 @@ func (g GradientTable) GetColor(t, s, l float64) colorful.Color {
 	}
 
 	// Nothing found? Means we're at (or past) the last gradient keypoint.
-	return colorful.Hcl(g[len(g)-1].Hue, 1.0, 0.05)
+	return colorful.Hcl(g[len(g)-1].Hue, s, l)
 }
