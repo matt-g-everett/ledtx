@@ -2,6 +2,7 @@ package main
 
 import (
     "log"
+    "math/rand"
     "os"
     "time"
 
@@ -33,6 +34,8 @@ func (a *app) run() {
 func main() {
     // mqtt.DEBUG = log.New(os.Stdout, "", 0)
     mqtt.ERROR = log.New(os.Stdout, "", 0)
+
+    rand.Seed(time.Now().UTC().UnixNano())
 
     a := newApp()
 
