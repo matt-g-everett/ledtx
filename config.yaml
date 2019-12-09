@@ -1,0 +1,8 @@
+mqtt:
+  username: user
+  password: password
+  url: tcp://10.0.0.1:31883
+  topics:
+    stream: home/xmastree/stream
+    calibrateServer: home/xmastree/cal/server
+    calibrateClient: home/xmastree/cal/client

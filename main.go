@@ -1,6 +1,7 @@
 package main
 
 import (
+    "flag"
     "log"
     "math/rand"
     "os"
@@ -8,9 +9,11 @@ import (
 
     "github.com/eclipse/paho.mqtt.golang"
     "github.com/matt-g-everett/ledtx/stream"
+    "gopkg.in/yaml.v2"
 )
 
 type app struct {
+    Config stream.Config
     Client mqtt.Client
     Streamer *stream.Streamer
 }
@@ -22,6 +25,7 @@ func newApp() *app {
 
 func (a *app) handleOnConnect(client mqtt.Client) {
     log.Println("Connected")
+    a.Streamer.Subscribe()
 }
 
 func (a *app) run() {
@@ -31,26 +35,46 @@ func (a *app) run() {
     a.Streamer.Run()
 }
 
+func (a *app) readConfig(configPath string) {
+    f, err := os.Open(configPath)
+    if err != nil {
+        panic(err)
+    }
+
+    decoder := yaml.NewDecoder(f)
+    err = decoder.Decode(&a.Config)
+    if err != nil {
+        panic(err)
+    }
+}
+
 func main() {
     // mqtt.DEBUG = log.New(os.Stdout, "", 0)
     mqtt.ERROR = log.New(os.Stdout, "", 0)
 
+    // Parse command line parameters
+    configPath := flag.String("config", "config.yaml", "YAML config file.")
+    flag.Parse()
+
     rand.Seed(time.Now().UTC().UnixNano())
 
+    // Read the config
     a := newApp()
+    a.readConfig(*configPath)
+    log.Printf("Config: %+v", a.Config)
 
     options := mqtt.NewClientOptions().
-        AddBroker("tcp://***REMOVED***:31883").
+        AddBroker(a.Config.Mqtt.URL).
         SetClientID("ledtx").
-        SetUsername("***REMOVED***").
-        SetPassword("***REMOVED***").
+        SetUsername(a.Config.Mqtt.Username).
+        SetPassword(a.Config.Mqtt.Password).
         SetKeepAlive(30 * time.Second).
         SetPingTimeout(5 * time.Second).
         SetOnConnectHandler(a.handleOnConnect)
     client := mqtt.NewClient(options)
 
     a.Client = client
-    a.Streamer = stream.NewStreamer(client)
+    a.Streamer = stream.NewStreamer(a.Config, client)
 
     a.run()
 }

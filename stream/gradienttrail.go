@@ -2,13 +2,10 @@ package stream
 
 import (
 	"math"
-
-	"github.com/eclipse/paho.mqtt.golang"
 )
 
 // A GradientTrail is an Animation that cycles a gradient along an led strip.
 type GradientTrail struct {
-	client mqtt.Client
 	gradient GradientTable
 	current float64
 	trailLength int
@@ -18,11 +15,10 @@ type GradientTrail struct {
 }
 
 // NewGradientTrail creates an instance of a GradientTrail object.
-func NewGradientTrail(client mqtt.Client, gradient GradientTable, trailLength int,
+func NewGradientTrail(gradient GradientTable, trailLength int,
 	luminance float64, startTimeMs int64, pixelsPerMs float64) (*GradientTrail) {
 
 	g := new(GradientTrail)
-	g.client = client
 	g.gradient = gradient
 	g.trailLength = trailLength
 	g.luminance = luminance

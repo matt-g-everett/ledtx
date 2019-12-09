@@ -3,7 +3,6 @@ package stream
 import (
 	"math/rand"
 
-	"github.com/eclipse/paho.mqtt.golang"
 	"github.com/lucasb-eyer/go-colorful"
 )
 
@@ -32,7 +31,6 @@ func (p *scintillatingParticle) gain() float64 {
 
 // A Twinkle is an Animation that twinkles random particles.
 type Twinkle struct {
-	client mqtt.Client
 	numParticles int
 	foreColour colorful.Color
 	backColour colorful.Color
@@ -43,11 +41,10 @@ type Twinkle struct {
 }
 
 // NewTwinkle creates an instance of a Twinkle object.
-func NewTwinkle(client mqtt.Client, scintillationChance int32, foreColour colorful.Color,
+func NewTwinkle(scintillationChance int32, foreColour colorful.Color,
 	backColour colorful.Color, runtimeMs int64) (*Twinkle) {
 
 	t := new(Twinkle)
-	t.client = client
 	t.foreColour = foreColour
 	t.backColour = backColour
 	t.scintillationChance = scintillationChance

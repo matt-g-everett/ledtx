@@ -19,6 +19,16 @@ func NewFrame() (*Frame) {
 	return f
 }
 
+// InterpolateFrame merges two frames.
+func (f *Frame) InterpolateFrame(f2 *Frame, transitionPoint float64) *Frame {
+	out := NewFrame()
+	for i := 0; i < len(f.pixels); i++ {
+		out.pixels[i] = f.pixels[i].BlendHcl(f2.pixels[i], transitionPoint)
+	}
+
+	return out
+}
+
 // MarshalBinary converts a Frame into binary data.
 func (f *Frame) MarshalBinary() (data []byte, err error) {
 	data = make([]byte, 2, (numPixels * 3) + 2)
