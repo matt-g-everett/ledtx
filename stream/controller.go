@@ -91,7 +91,11 @@ func (c *Controller) cycleAnimation() {
 func (c *Controller) Run() {
 	publishTimer := time.NewTicker(c.animationTime)
 	for {
-		<-publishTimer.C
-		c.cycleAnimation()
+		select {
+		case <-publishTimer.C:
+			c.cycleAnimation()
+		case <-c.calibrate.CalStart:
+			c.animation = c.calibrate
+		}
 	}
 }
