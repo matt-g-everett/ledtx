@@ -14,6 +14,7 @@ type Controller struct {
 	animation Animation
 	nextAnimation Animation
 	animationTime time.Duration
+	cycling bool
 	runtimeMs int64
 	frameRate float64
 	transition float64
@@ -33,6 +34,7 @@ func NewController(runtimeMs int64, frameRate float64, animationTime time.Durati
 	c.nextAnimation = nil
 	c.calibrate = calibrate
 	c.animationTime = animationTime
+	c.cycling = true
 
 	c.runtimeMs = runtimeMs
 	c.frameRate = frameRate
@@ -65,25 +67,27 @@ func (c *Controller) CalculateFrame(runtimeMs int64) (*Frame) {
 }
 
 func (c *Controller) cycleAnimation() {
-	log.Printf("type: %v", reflect.TypeOf(c.animation).Elem().String())
-	if reflect.TypeOf(c.animation).Elem().String() == "stream.GradientTrail" {
-		backColour, _ := colorful.Hex("#000005") //("#100505")
-		foreColour, _ := colorful.Hex("#808080") //("#404040")
-		c.nextAnimation = NewTwinkle(400, foreColour, backColour, c.runtimeMs)
-	} else {
-		gradient := GradientTable{
-			{0.0, 0.0},
-			{6.0, 0.04}, // Pink
-			{87.0, 0.14}, // Red
-			{88.0, 0.28}, // Orange
-			{98.0, 0.42}, // Yellow
-			{180.0, 0.56}, // Green
-			{190.0, 0.70}, // Turquiose
-			{320.0, 0.84}, // Blue
-			{328.0, 0.91}, // Violet
-			{360.0, 1.0}, // Pink wrap
+	if c.cycling {
+		log.Printf("type: %v", reflect.TypeOf(c.animation).Elem().String())
+		if reflect.TypeOf(c.animation).Elem().String() == "stream.GradientTrail" {
+			backColour, _ := colorful.Hex("#000005") //("#100505")
+			foreColour, _ := colorful.Hex("#808080") //("#404040")
+			c.nextAnimation = NewTwinkle(400, foreColour, backColour, c.runtimeMs)
+		} else {
+			gradient := GradientTable{
+				{0.0, 0.0},
+				{6.0, 0.04}, // Pink
+				{87.0, 0.14}, // Red
+				{88.0, 0.28}, // Orange
+				{98.0, 0.42}, // Yellow
+				{180.0, 0.56}, // Green
+				{190.0, 0.70}, // Turquiose
+				{320.0, 0.84}, // Blue
+				{328.0, 0.91}, // Violet
+				{360.0, 1.0}, // Pink wrap
+			}
+			c.nextAnimation = NewGradientTrail(gradient, 180, 0.06, c.runtimeMs, -0.03)
 		}
-		c.nextAnimation = NewGradientTrail(gradient, 180, 0.06, c.runtimeMs, -0.03)
 	}
 }
 
@@ -94,8 +98,14 @@ func (c *Controller) Run() {
 		select {
 		case <-publishTimer.C:
 			c.cycleAnimation()
-		case <-c.calibrate.CalStart:
-			c.animation = c.calibrate
+		case start, _ := <-c.calibrate.C:
+			if start {
+				c.cycling = false
+				c.animation = c.calibrate
+			} else {
+				c.cycling = true
+				c.cycleAnimation()
+			}
 		}
 	}
 }
