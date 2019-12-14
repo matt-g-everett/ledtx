@@ -11,3 +11,5 @@
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
 homeauto.yaml
+node_modules
+client/dist/main.js
