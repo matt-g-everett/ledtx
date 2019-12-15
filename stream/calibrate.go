@@ -3,40 +3,39 @@ package stream
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"math"
 	"os"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/eclipse/paho.mqtt.golang"
 	"github.com/lucasb-eyer/go-colorful"
 )
 
-type CalibrationMessage struct {
-	Type string `json:"type"`
-	Locations []float64 `json:"locations"`
-}
-
-type Point struct {
-	x float64
-	y float64
-}
+const (
+	binSimilarityDistance float64 = 3.0
+	binHitThreshold int32 = 100
+	iterations int = 30
+)
 
 type Calibrate struct {
 	config Config
 	client mqtt.Client
 	C chan bool
-	abort chan bool
 	started bool
 
-	litLength int
-	lit map[int]bool
 	iteration int
 	bins map[Point]map[int]int
-	resolved map[int]bool
 	frame *Frame
 	msg chan CalibrationMessage
-	remainder int
+	rawData []*RawCalibrationData
+	isEven bool
+	aggregated *AggregatedData
+
+	binWriteLock sync.Mutex
 }
 
 func NewCalibrate(config Config, client mqtt.Client) *Calibrate {
@@ -48,18 +47,32 @@ func NewCalibrate(config Config, client mqtt.Client) *Calibrate {
 	return c
 }
 
-func (c *Calibrate) prepareFrame() {
-	c.lit = make(map[int]bool)
-	for i := 0; i < len(c.frame.pixels); i++ {
-		litlen := 1 << c.litLength
-		lit := (int(math.Floor(float64(i) / float64(litlen))) % 2) == c.remainder
-		c.lit[i] = lit
-		if lit {
-			c.frame.pixels[i], _ = colorful.Hex("#404040")
+func (c *Calibrate) prepareFS() {
+	os.RemoveAll("caldata")
+	os.MkdirAll("caldata/raw", 0755)
+	os.MkdirAll("caldata/pixels", 0755)
+}
+
+func (c *Calibrate) prepareFrame(frame *Frame, litLength int, isEven bool) []int32 {
+	remainder := 1
+	if isEven {
+		remainder = 0
+	}
+
+	pixelCount := len(frame.pixels)
+	lit := make([]int32, pixelCount, pixelCount)
+	for i := 0; i < pixelCount; i++ {
+		litlen := 1 << litLength
+		if (int(math.Floor(float64(i) / float64(litlen))) % 2) == remainder {
+			frame.pixels[i], _ = colorful.Hex("#202020")
+			lit[i] = 1
 		} else {
-			c.frame.pixels[i], _ = colorful.Hex("#000000")
+			frame.pixels[i], _ = colorful.Hex("#000000")
+			lit[i] = -1
 		}
 	}
+
+	return lit
 }
 
 func (c *Calibrate) handleClientMessages(client mqtt.Client, msg mqtt.Message) {
@@ -75,125 +88,218 @@ func (c *Calibrate) handleClientMessages(client mqtt.Client, msg mqtt.Message) {
 
 func (c *Calibrate) runCalibration() {
 	c.started = true
-	c.abort = make(chan bool, 1)
 	c.frame = NewFrame()
 	pixelCount := len(c.frame.pixels)
-	c.litLength = int(math.Ceil(math.Log2(float64(pixelCount)))) - 1
-	log.Printf("lit length: %d", c.litLength)
-	c.bins = make(map[Point]map[int]int)
-	c.resolved = make(map[int]bool)
-	for i := 0; i < pixelCount; i++ {
-		c.resolved[i] = false
-	}
+	litLength := int(math.Ceil(math.Log2(float64(pixelCount)))) - 1
+	c.aggregated = &AggregatedData { Bins: make([]*Bin, 0, 5000) }
 	c.msg = make(chan CalibrationMessage)
-	c.prepareFrame()
-	c.C<- true
+	rawDataCount := 2 * (litLength + 1) * iterations
+	c.rawData = make([]*RawCalibrationData, 0, rawDataCount)
 
-	time.Sleep(2000 * time.Millisecond)
-	c.remainder = 0
-	for ; c.litLength >= 0 && c.started; {
-		c.prepareFrame()
+	c.prepareFrame(c.frame, litLength, c.isEven) // Do this early allow the camera to adjust exposure
+	c.C<- true
+	time.Sleep(2 * time.Second)
+
+	c.prepareFS()
+	c.isEven = true
+	patternNumber := 0
+	var importWaitGroup sync.WaitGroup
+	for ; litLength >= 0 && c.started; {
+		lit := c.prepareFrame(c.frame, litLength, c.isEven)
 		time.Sleep(200 * time.Millisecond)
 
-		for i := 0; i < 10; i++ {
+		for i := 0; i < iterations; i++ {
 			token := c.client.Publish(c.config.Mqtt.Topics.CalibrateServer, 0, false, "snapshot")
 			token.Wait()
-			msg := <-c.msg
+			log.Println("Published snapshot")
 
-			c.storeLocations(msg)
+			t := time.NewTimer(time.Second)
+			select {
+			case msg := <-c.msg:
+				log.Println("Received snapshot")
+				importWaitGroup.Add(1)
+				go c.importCalibrationMessage(msg, lit, patternNumber, i, &importWaitGroup)
+			case <-t.C:
+				log.Println("Message timed-out, retrying")
+			}
 		}
 
-		if c.remainder == 1 {
-			c.litLength--
+		patternNumber++
+
+		if !c.isEven {
+			litLength--
 		}
-		c.remainder = c.remainder ^ 1
-		log.Printf("REMAINDER: %d", c.remainder)
+		c.isEven = !c.isEven
 	}
 
-	log.Printf("Count: %d", len(c.bins))
-	//count := 0
-	report := make(map[int]Point)
-	reportCount := make(map[int]int)
-	// for k, v := range c.bins {
+	importWaitGroup.Wait()
+	log.Println("########## DONE CAPTURING")
+
+	c.aggregate()
+	log.Printf("Bin count (total): %d", len(c.aggregated.Bins))
+
+	highHitData := &AggregatedData { Bins: make([]*Bin, 0, 10000) }
+	for _, b := range c.aggregated.Bins {
+		if b.Hits >= binHitThreshold {
+			highHitData.Bins = append(highHitData.Bins, b)
+		}
+	}
+	log.Printf("Bin count (hits): %d", len(highHitData.Bins))
+
+	c.storeAggregatedData(c.aggregated)
+	c.storeAggregatedData(highHitData)
+
+	// log.Printf("Count: %d", len(c.bins))
+	// report := make(map[int]Point)
+	// reportCount := make(map[int]int)
+
+
+	// for i := 0; i < pixelCount; i++ {
 	// 	highestCount := 0
-	// 	highestPixel := -1
-	// 	for pixel, count := range v {
-	// 		if count > highestCount {
-	// 			highestPixel = pixel
-	// 			highestCount = count
+	// 	highestBin := Point{0, 0}
+	// 	for k, v := range c.bins {
+	// 		if v[i] > highestCount {
+	// 			highestBin = k
+	// 			highestCount = v[i]
 	// 		}
 	// 	}
 
-	// 	if highestCount > 20 {
-	// 		report[highestPixel] = k
-	// 		count++
-	// 	}
+	// 	report[i] = highestBin
+	// 	reportCount[i] = highestCount
 	// }
 
+	// for i := 0; i < pixelCount; i++ {
+	// 	loc, found := report[i]
+	// 	count, _ := reportCount[i]
+	// 	if found {
+	// 		log.Printf("%d: %v (%d)", i, loc, count)
+	// 	} else {
+	// 		log.Printf("%d:", i)
+	// 	}
+	// }
+}
 
-	for i := 0; i < pixelCount; i++ {
-		highestCount := 0
-		highestBin := Point{0, 0}
-		for k, v := range c.bins {
-			if v[i] > highestCount {
-				highestBin = k
-				highestCount = v[i]
-			}
+func (c *Calibrate) aggregate() {
+	for _, r := range c.rawData {
+		for _, l := range r.Locations {
+			c.incrementBin(l, r.Pixels)
 		}
-
-		report[i] = highestBin
-		reportCount[i] = highestCount
 	}
 
-	for i := 0; i < pixelCount; i++ {
-		loc, found := report[i]
-		count, _ := reportCount[i]
-		if found {
-			log.Printf("%d: %v (%d)", i, loc, count)
-		} else {
-			log.Printf("%d:", i)
-		}
+	c.storeAggregatedData(c.aggregated)
+}
+
+func (c *Calibrate) doIncrementBin(bin *Bin, lit []int32) {
+	atomic.AddInt32(&bin.Hits, 1)
+	for j := 0; j < len(lit); j++ {
+		atomic.AddInt32(&bin.Pixels[j], lit[j])
 	}
 }
 
-func isBin(x float64, y float64, bin Point, threshold float64) bool {
-	return math.Sqrt(math.Pow(math.Abs(x - bin.x), 2.0) + math.Pow(math.Abs(y - bin.y), 2.0)) < threshold
-}
+func (c *Calibrate) incrementBin(binLocation Point, lit []int32) {
+	found := false
+	for i := 0; i < len(c.aggregated.Bins); i++ {
+		if isBin(binLocation, c.aggregated.Bins[i].Location, binSimilarityDistance) {
+			c.doIncrementBin(c.aggregated.Bins[i], lit)
+			found = true
+			break
+		}
+	}
 
-func (c *Calibrate) storeLocations(msg CalibrationMessage) {
-	toAdd := make(map[Point]map[int]int)
-	for i := 0; i < len(msg.Locations); i += 2 {
-		found := false
-		for k, v := range c.bins {
-			if isBin(msg.Locations[i], msg.Locations[i+1], k, 3.0) {
+	if !found {
+		c.binWriteLock.Lock()
+		// Search again, another goroutine may have beaten us to it
+		found = false
+		var foundBin *Bin
+		for i := 0; i < len(c.aggregated.Bins); i++ {
+			if isBin(binLocation, c.aggregated.Bins[i].Location, binSimilarityDistance) {
 				found = true
-				for j := 0; j < len(c.lit); j++ {
-					if c.lit[j] {
-						v[j]++
-					} else {
-						v[j]--
-					}
-				}
+				foundBin = c.aggregated.Bins[i]
+				break
 			}
 		}
 
+		// If the bin is still not present while we're locked, add it
 		if !found {
-			// Add the bin
-			pixelMap := make(map[int]int)
-			toAdd[Point{msg.Locations[i], msg.Locations[i+1]}] = pixelMap
-			for j := 0; j < len(c.lit); j++ {
-				if c.lit[j] {
-					pixelMap[j] = 1
-				} else {
-					pixelMap[j] = -1
-				}
-			}
+			litCopy := make([]int32, len(lit))
+			copy(litCopy, lit)
+			c.aggregated.Bins = append(c.aggregated.Bins, &Bin { Location: binLocation, Pixels: litCopy, Hits: 1 })
+		}
+		c.binWriteLock.Unlock()
+
+		// If we found it then another goroutine added it, so just increment as usual
+		if found {
+			c.doIncrementBin(foundBin, lit)
+		}
+	}
+}
+
+func isBin(a Point, b Point, threshold float64) bool {
+	return math.Sqrt(math.Pow(math.Abs(a.X - b.X), 2.0) + math.Pow(math.Abs(a.Y - b.Y), 2.0)) < threshold
+}
+
+func (c *Calibrate) convertCalibrationMessage(msg CalibrationMessage, lit []int32) *RawCalibrationData {
+	pointCount := len(msg.Locations) / 2
+	r := &RawCalibrationData {
+		Pixels: lit,
+		Locations: make([]Point, pointCount, pointCount),
+	}
+
+	for i := 0; i < pointCount; i++ {
+		r.Locations[i] = Point {
+			X: msg.Locations[i * 2],
+			Y: msg.Locations[(i * 2) + 1],
 		}
 	}
 
-	for k, v := range toAdd {
-		c.bins[k] = v
+	return r
+}
+
+func (c *Calibrate) storeRawData(data *RawCalibrationData, patternNumber int, capture int) {
+	filePath := fmt.Sprintf("caldata/raw/raw-p%03d-%03d.json", patternNumber, capture)
+	f, err := os.OpenFile(filePath, os.O_CREATE | os.O_WRONLY, 0664)
+	if err != nil {
+		panic(err.Error)
 	}
+
+	serialised, err := json.Marshal(data)
+	if err != nil {
+		f.Close()
+		panic(err.Error)
+	}
+	_, err = f.Write(serialised)
+	if err != nil {
+		f.Close()
+		panic(err.Error)
+	}
+	f.Close()
+}
+
+func (c *Calibrate) storeAggregatedData(data *AggregatedData) {
+	filePath := fmt.Sprintf("caldata/aggregated.json")
+	f, err := os.OpenFile(filePath, os.O_CREATE | os.O_WRONLY, 0664)
+	if err != nil {
+		panic(err.Error)
+	}
+
+	serialised, err := json.Marshal(data)
+	if err != nil {
+		f.Close()
+		panic(err.Error)
+	}
+	_, err = f.Write(serialised)
+	if err != nil {
+		f.Close()
+		panic(err.Error)
+	}
+	f.Close()
+}
+
+func (c *Calibrate) importCalibrationMessage(msg CalibrationMessage, lit []int32, patternNumber int, capture int, wg *sync.WaitGroup) {
+	r := c.convertCalibrationMessage(msg, lit)
+	c.rawData = append(c.rawData, r)
+	c.storeRawData(r, patternNumber, capture)
+	wg.Done()
 }
 
 func (c *Calibrate) CalculateFrame(runtimeMs int64) (*Frame) {

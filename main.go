@@ -2,13 +2,13 @@ package main
 
 import (
     "flag"
-    "net/http"
     "log"
     "math/rand"
     "os"
     "time"
 
     "github.com/eclipse/paho.mqtt.golang"
+    "github.com/matt-g-everett/ledtx/api"
     "github.com/matt-g-everett/ledtx/stream"
     "gopkg.in/yaml.v2"
 )
@@ -49,14 +49,6 @@ func (a *app) readConfig(configPath string) {
     }
 }
 
-func servePages() {
-    fs := http.FileServer(http.Dir("client/dist"))
-    http.Handle("/", fs)
-
-    log.Println("Listening...")
-    http.ListenAndServe(":3000", nil)
-}
-
 func main() {
     // mqtt.DEBUG = log.New(os.Stdout, "", 0)
     mqtt.ERROR = log.New(os.Stdout, "", 0)
@@ -85,7 +77,8 @@ func main() {
     a.Client = client
     a.Streamer = stream.NewStreamer(a.Config, client)
 
-    go servePages()
+    api := api.NewApi()
+    go api.Serve()
 
     a.run()
 }
