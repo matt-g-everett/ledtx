@@ -16,9 +16,9 @@ import (
 )
 
 const (
-	binSimilarityDistance float64 = 3.0
-	binHitThreshold int32 = 100
-	iterations int = 30
+	binSimilarityDistance float64 = 4.0
+	binHitThreshold int32 = 30
+	iterations int = 10
 )
 
 type Calibrate struct {
@@ -86,6 +86,30 @@ func (c *Calibrate) handleClientMessages(client mqtt.Client, msg mqtt.Message) {
 	}
 }
 
+func (c *Calibrate) resolve(aggregated *AggregatedData, resolved []Pixel) {
+	for _, bin := range aggregated.Bins {
+		var maxPixelFrequency int32 = 0 // Start with zero, ignore negative counts
+		pixel := -1
+		unique := true
+		for i, p := range bin.Pixels {
+			if p > maxPixelFrequency {
+				maxPixelFrequency = p
+				pixel = i
+				unique = true
+			} else if p == maxPixelFrequency {
+				unique = false
+			}
+		}
+
+		if pixel > -1 && maxPixelFrequency > 0 && unique {
+			if !resolved[pixel].Resolved {
+				resolved[pixel].Location = bin.Location
+				resolved[pixel].Resolved = true
+			}
+		}
+	}
+}
+
 func (c *Calibrate) runCalibration() {
 	c.started = true
 	c.frame = NewFrame()
@@ -146,47 +170,24 @@ func (c *Calibrate) runCalibration() {
 	}
 	log.Printf("Bin count (hits): %d", len(highHitData.Bins))
 
-	c.storeAggregatedData(c.aggregated)
-	c.storeAggregatedData(highHitData)
+	c.store(c.aggregated, "caldata/aggregated_raw.json")
+	c.store(highHitData, "caldata/aggregated.json")
 
-	// log.Printf("Count: %d", len(c.bins))
-	// report := make(map[int]Point)
-	// reportCount := make(map[int]int)
-
-
-	// for i := 0; i < pixelCount; i++ {
-	// 	highestCount := 0
-	// 	highestBin := Point{0, 0}
-	// 	for k, v := range c.bins {
-	// 		if v[i] > highestCount {
-	// 			highestBin = k
-	// 			highestCount = v[i]
-	// 		}
-	// 	}
-
-	// 	report[i] = highestBin
-	// 	reportCount[i] = highestCount
-	// }
-
-	// for i := 0; i < pixelCount; i++ {
-	// 	loc, found := report[i]
-	// 	count, _ := reportCount[i]
-	// 	if found {
-	// 		log.Printf("%d: %v (%d)", i, loc, count)
-	// 	} else {
-	// 		log.Printf("%d:", i)
-	// 	}
-	// }
+	resolved := make([]Pixel, pixelCount, pixelCount)
+	c.resolve(c.aggregated, resolved)
+	c.store(resolved, "caldata/resolved.json")
 }
 
 func (c *Calibrate) aggregate() {
+	// var wg sync.WaitGroup
 	for _, r := range c.rawData {
 		for _, l := range r.Locations {
+			//wg.Add(len(r.Locations))
 			c.incrementBin(l, r.Pixels)
 		}
 	}
 
-	c.storeAggregatedData(c.aggregated)
+	//wg.Wait()
 }
 
 func (c *Calibrate) doIncrementBin(bin *Bin, lit []int32) {
@@ -255,28 +256,7 @@ func (c *Calibrate) convertCalibrationMessage(msg CalibrationMessage, lit []int3
 	return r
 }
 
-func (c *Calibrate) storeRawData(data *RawCalibrationData, patternNumber int, capture int) {
-	filePath := fmt.Sprintf("caldata/raw/raw-p%03d-%03d.json", patternNumber, capture)
-	f, err := os.OpenFile(filePath, os.O_CREATE | os.O_WRONLY, 0664)
-	if err != nil {
-		panic(err.Error)
-	}
-
-	serialised, err := json.Marshal(data)
-	if err != nil {
-		f.Close()
-		panic(err.Error)
-	}
-	_, err = f.Write(serialised)
-	if err != nil {
-		f.Close()
-		panic(err.Error)
-	}
-	f.Close()
-}
-
-func (c *Calibrate) storeAggregatedData(data *AggregatedData) {
-	filePath := fmt.Sprintf("caldata/aggregated.json")
+func (c *Calibrate) store(data interface{}, filePath string) {
 	f, err := os.OpenFile(filePath, os.O_CREATE | os.O_WRONLY, 0664)
 	if err != nil {
 		panic(err.Error)
@@ -298,7 +278,7 @@ func (c *Calibrate) storeAggregatedData(data *AggregatedData) {
 func (c *Calibrate) importCalibrationMessage(msg CalibrationMessage, lit []int32, patternNumber int, capture int, wg *sync.WaitGroup) {
 	r := c.convertCalibrationMessage(msg, lit)
 	c.rawData = append(c.rawData, r)
-	c.storeRawData(r, patternNumber, capture)
+	c.store(r, fmt.Sprintf("caldata/raw/raw-p%03d-%03d.json", patternNumber, capture))
 	wg.Done()
 }
 
