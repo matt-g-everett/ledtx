@@ -57,11 +57,12 @@ func NewController(runtimeMs int64, frameRate float64, animationTime time.Durati
 	c.transitionIncrement = 1.0 / (c.frameRate * c.transitionTimeSecs)
 
 	c.animationPlaylist = []string{
+		"twinkle:random",
 		"twinkle:blue",
-		"rainbow:normal",
+		"rainbow:random",
 		"twinkle:random",
 		"twinkle:pink",
-		"rainbow:random",
+		"rainbow:normal",
 		"twinkle:gold",
 		"twinkle:random",
 		"twinkle:silver",
@@ -102,7 +103,7 @@ func (c *Controller) createRandomTwinkle(foreColour colorful.Color) Animation {
 	return NewTwinkle(
 		rand.Int31n(900) + 100,
 		foreColour,
-		colorful.Hcl(rand.Float64() * 360.0, 1.0, 0.04), c.runtimeMs)
+		colorful.Hsl(rand.Float64() * 360.0, 1.0, 0.02), c.runtimeMs)
 }
 
 func (c *Controller) createKnownRainbow() Animation {
@@ -147,8 +148,8 @@ func (c *Controller) cycleAnimation() {
 	if c.cycling {
 		c.animationIndex++
 		c.animationIndex %= len(c.animationPlaylist)
+		log.Printf("Cycling to %s", c.animationPlaylist[c.animationIndex])
 		c.nextAnimation = c.getAnimation()
-		log.Printf("log")
 	}
 }
 
