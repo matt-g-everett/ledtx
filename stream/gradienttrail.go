@@ -8,14 +8,14 @@ import (
 type GradientTrail struct {
 	gradient GradientTable
 	current float64
-	trailLength int
+	trailLength uint32
 	luminance float64
 	runtimeMs int64
 	pixelsPerMs float64
 }
 
 // NewGradientTrail creates an instance of a GradientTrail object.
-func NewGradientTrail(gradient GradientTable, trailLength int,
+func NewGradientTrail(gradient GradientTable, trailLength uint32,
 	luminance float64, startTimeMs int64, pixelsPerMs float64) (*GradientTrail) {
 
 	g := new(GradientTrail)
