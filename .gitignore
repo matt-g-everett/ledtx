@@ -14,3 +14,4 @@ homeauto.yaml
 node_modules
 client/dist/main.js
 caldata
+ledtx

@@ -10,19 +10,19 @@ import (
 
 // Controller that manages animations.
 type Controller struct {
-	calibrate *Calibrate
-	animationIndex int
-	animationPlaylist []string
-	animation Animation
-	nextAnimation Animation
-	animationTime time.Duration
-	cycling bool
-	runtimeMs int64
-	frameRate float64
-	transition float64
-	transitionTimeSecs float64
+	calibrate           *Calibrate
+	animationIndex      int
+	animationPlaylist   []string
+	animation           Animation
+	nextAnimation       Animation
+	animationTime       time.Duration
+	cycling             bool
+	runtimeMs           int64
+	frameRate           float64
+	transition          float64
+	transitionTimeSecs  float64
 	transitionIncrement float64
-	rainbowGradient GradientTable
+	rainbowGradient     GradientTable
 }
 
 // NewController creates an instance of a Controller.
@@ -33,15 +33,15 @@ func NewController(runtimeMs int64, frameRate float64, animationTime time.Durati
 
 	c.rainbowGradient = GradientTable{
 		{0.0, 0.0},
-		{6.0, 0.04}, // Pink
-		{87.0, 0.14}, // Red
-		{88.0, 0.28}, // Orange
-		{98.0, 0.42}, // Yellow
+		{6.0, 0.04},   // Pink
+		{87.0, 0.14},  // Red
+		{88.0, 0.28},  // Orange
+		{98.0, 0.42},  // Yellow
 		{180.0, 0.56}, // Green
 		{190.0, 0.70}, // Turquiose
 		{320.0, 0.84}, // Blue
 		{328.0, 0.91}, // Violet
-		{360.0, 1.0}, // Pink wrap
+		{360.0, 1.0},  // Pink wrap
 	}
 
 	c.animation = nil
@@ -71,12 +71,12 @@ func NewController(runtimeMs int64, frameRate float64, animationTime time.Durati
 		"rainbow:random",
 	}
 	c.animationIndex = 0
-	c.animation = c.getAnimation()
+	c.animation, _ = c.getAnimation()
 
 	return c
 }
 
-func (c *Controller) CalculateFrame(runtimeMs int64) (*Frame) {
+func (c *Controller) CalculateFrame(runtimeMs int64) *Frame {
 	var f *Frame
 	c.runtimeMs = runtimeMs
 	if c.nextAnimation != nil {
@@ -98,14 +98,16 @@ func (c *Controller) CalculateFrame(runtimeMs int64) (*Frame) {
 }
 
 func (c *Controller) createKnownTwinkle(foreColour colorful.Color, backColour colorful.Color) Animation {
-	return NewTwinkle(rand.Int31n(600) + 200, foreColour, backColour, c.runtimeMs)
+	return NewTwinkle(rand.Int31n(600)+200, foreColour, backColour, c.runtimeMs)
 }
 
-func (c *Controller) createRandomTwinkle(foreColour colorful.Color) Animation {
-	return NewTwinkle(
-		rand.Int31n(900) + 100,
-		foreColour,
-		colorful.Hsl(rand.Float64() * 360.0, 1.0, 0.02), c.runtimeMs)
+func (c *Controller) createRandomTwinkle(foreColour colorful.Color) (Animation, string) {
+	randomColor := colorful.Hsl(rand.Float64()*360.0, 1.0, 0.02)
+	animation := NewTwinkle(
+		rand.Int31n(900)+100,
+		foreColour, randomColor, c.runtimeMs)
+
+	return animation, randomColor.Hex()
 }
 
 func (c *Controller) createKnownRainbow() Animation {
@@ -118,9 +120,10 @@ func (c *Controller) createRandomRainbow() Animation {
 	return NewGradientTrail(c.rainbowGradient, uint32(trailLength), 0.06, c.runtimeMs, speed)
 }
 
-func (c *Controller) getAnimation() Animation {
+func (c *Controller) getAnimation() (Animation, string) {
 	twinkleHighlight, _ := colorful.Hex("#808080")
 
+	extraInfo := ""
 	var animation Animation
 	switch c.animationPlaylist[c.animationIndex] {
 	case "twinkle:blue":
@@ -130,7 +133,7 @@ func (c *Controller) getAnimation() Animation {
 		pink, _ := colorful.Hex("#100505")
 		animation = c.createKnownTwinkle(twinkleHighlight, pink)
 	case "twinkle:random":
-		animation = c.createRandomTwinkle(twinkleHighlight)
+		animation, extraInfo = c.createRandomTwinkle(twinkleHighlight)
 	case "twinkle:silver":
 		silver, _ := colorful.Hex("#030303")
 		animation = c.createKnownTwinkle(twinkleHighlight, silver)
@@ -143,15 +146,21 @@ func (c *Controller) getAnimation() Animation {
 		animation = c.createRandomRainbow()
 	}
 
-	return animation
+	return animation, extraInfo
 }
 
 func (c *Controller) cycleAnimation() {
 	if c.cycling {
 		c.animationIndex++
 		c.animationIndex %= len(c.animationPlaylist)
-		log.Printf("Cycling to %s", c.animationPlaylist[c.animationIndex])
-		c.nextAnimation = c.getAnimation()
+
+		var extraInfo string
+		c.nextAnimation, extraInfo = c.getAnimation()
+		if len(extraInfo) > 0 {
+			log.Printf("Cycling to %s; %s", c.animationPlaylist[c.animationIndex], extraInfo)
+		} else {
+			log.Printf("Cycling to %s", c.animationPlaylist[c.animationIndex])
+		}
 	}
 }
 
