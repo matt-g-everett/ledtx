@@ -1,6 +1,5 @@
 package stream
 
-
 import (
 	"encoding/json"
 	"fmt"
@@ -11,28 +10,26 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/eclipse/paho.mqtt.golang"
+	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/lucasb-eyer/go-colorful"
 )
 
 const (
 	binSimilarityDistance float64 = 4.0
-	binHitThreshold int32 = 30
-	iterations int = 10
+	binHitThreshold       int32   = 1
 )
 
 type Calibrate struct {
-	config Config
-	client mqtt.Client
-	C chan bool
+	config  Config
+	client  mqtt.Client
+	C       chan bool
 	started bool
 
-	iteration int
-	bins map[Point]map[int]int
-	frame *Frame
-	msg chan CalibrationMessage
-	rawData []*RawCalibrationData
-	isEven bool
+	iteration  int
+	bins       map[Point]map[int]int
+	frame      *Frame
+	msg        chan CalibrationMessage
+	rawData    []*RawCalibrationData
 	aggregated *AggregatedData
 
 	binWriteLock sync.Mutex
@@ -53,22 +50,17 @@ func (c *Calibrate) prepareFS() {
 	os.MkdirAll("caldata/pixels", 0755)
 }
 
-func (c *Calibrate) prepareFrame(frame *Frame, litLength int, isEven bool) []int32 {
-	remainder := 1
-	if isEven {
-		remainder = 0
-	}
-
+func (c *Calibrate) prepareFrame(frame *Frame, interval int, offset int) []int32 {
 	pixelCount := len(frame.pixels)
 	lit := make([]int32, pixelCount, pixelCount)
+
 	for i := 0; i < pixelCount; i++ {
-		litlen := 1 << litLength
-		if (int(math.Floor(float64(i) / float64(litlen))) % 2) == remainder {
+		if (i-offset)%interval == 0 {
 			frame.pixels[i], _ = colorful.Hex("#202020")
 			lit[i] = 1
 		} else {
 			frame.pixels[i], _ = colorful.Hex("#000000")
-			lit[i] = -1
+			lit[i] = 0
 		}
 	}
 
@@ -82,7 +74,7 @@ func (c *Calibrate) handleClientMessages(client mqtt.Client, msg mqtt.Message) {
 	if !c.started && message.Type == "start" {
 		go c.runCalibration()
 	} else if c.started && message.Type == "data" {
-		c.msg<- message
+		c.msg <- message
 	}
 }
 
@@ -114,46 +106,54 @@ func (c *Calibrate) runCalibration() {
 	c.started = true
 	c.frame = NewFrame()
 	pixelCount := len(c.frame.pixels)
-	litLength := int(math.Ceil(math.Log2(float64(pixelCount)))) - 1
-	c.aggregated = &AggregatedData { Bins: make([]*Bin, 0, 5000) }
+	c.aggregated = &AggregatedData{Bins: make([]*Bin, 0, 5000)}
 	c.msg = make(chan CalibrationMessage)
-	rawDataCount := 2 * (litLength + 1) * iterations
+	intervals := []int{1, 2, 3, 5, 7, 11, 13, 17, 19}
+	rawDataCount := 0
+	for _, interval := range intervals {
+		rawDataCount += interval
+	}
+
 	c.rawData = make([]*RawCalibrationData, 0, rawDataCount)
 
-	c.prepareFrame(c.frame, litLength, c.isEven) // Do this early allow the camera to adjust exposure
-	c.C<- true
+	c.prepareFrame(c.frame, 1, 0) // Do this early allow the camera to adjust exposure
+	c.C <- true
 	time.Sleep(2 * time.Second)
 
 	c.prepareFS()
-	c.isEven = true
-	patternNumber := 0
+	capture := 0
 	var importWaitGroup sync.WaitGroup
-	for ; litLength >= 0 && c.started; {
-		lit := c.prepareFrame(c.frame, litLength, c.isEven)
-		time.Sleep(200 * time.Millisecond)
 
-		for i := 0; i < iterations; i++ {
-			token := c.client.Publish(c.config.Mqtt.Topics.CalibrateServer, 0, false, "snapshot")
-			token.Wait()
-			log.Println("Published snapshot")
+	for _, interval := range intervals {
+		for o := 0; o < interval; o++ {
 
-			t := time.NewTimer(time.Second)
-			select {
-			case msg := <-c.msg:
-				log.Println("Received snapshot")
-				importWaitGroup.Add(1)
-				go c.importCalibrationMessage(msg, lit, patternNumber, i, &importWaitGroup)
-			case <-t.C:
-				log.Println("Message timed-out, retrying")
+			lit := c.prepareFrame(c.frame, interval, o)
+
+			for iter := 0; iter < 5; iter++ {
+				token := c.client.Publish(c.config.Mqtt.Topics.CalibrateServer, 0, false, "snapshot")
+				if o == 0 {
+					// The light level is different when the interval changes so wait for exposure adjustment
+					time.Sleep(1 * time.Second)
+				} else {
+					time.Sleep(100 * time.Millisecond)
+				}
+
+				token.Wait()
+				log.Println("Published snapshot")
+
+				t := time.NewTimer(time.Second)
+				select {
+				case msg := <-c.msg:
+					log.Println("Received snapshot")
+					importWaitGroup.Add(1)
+					go c.importCalibrationMessage(msg, lit, capture, interval, o, &importWaitGroup)
+				case <-t.C:
+					log.Println("Message timed-out, retrying")
+				}
+
+				capture++
 			}
 		}
-
-		patternNumber++
-
-		if !c.isEven {
-			litLength--
-		}
-		c.isEven = !c.isEven
 	}
 
 	importWaitGroup.Wait()
@@ -162,7 +162,7 @@ func (c *Calibrate) runCalibration() {
 	c.aggregate()
 	log.Printf("Bin count (total): %d", len(c.aggregated.Bins))
 
-	highHitData := &AggregatedData { Bins: make([]*Bin, 0, 10000) }
+	highHitData := &AggregatedData{Bins: make([]*Bin, 0, 10000)}
 	for _, b := range c.aggregated.Bins {
 		if b.Hits >= binHitThreshold {
 			highHitData.Bins = append(highHitData.Bins, b)
@@ -176,6 +176,20 @@ func (c *Calibrate) runCalibration() {
 	resolved := make([]Pixel, pixelCount, pixelCount)
 	c.resolve(c.aggregated, resolved)
 	c.store(resolved, "caldata/resolved.json")
+	log.Println("Resolved")
+
+	pixelCount = len(c.frame.pixels)
+	for i := 0; i < pixelCount; i++ {
+		if resolved[i].Resolved {
+			c.frame.pixels[i], _ = colorful.Hex("#002000")
+		} else {
+			c.frame.pixels[i], _ = colorful.Hex("#000000")
+		}
+	}
+
+	token := c.client.Publish(c.config.Mqtt.Topics.CalibrateServer, 0, false, "snapshot")
+	token.Wait()
+	log.Println("Published resolved")
 }
 
 func (c *Calibrate) aggregate() {
@@ -224,7 +238,7 @@ func (c *Calibrate) incrementBin(binLocation Point, lit []int32) {
 		if !found {
 			litCopy := make([]int32, len(lit))
 			copy(litCopy, lit)
-			c.aggregated.Bins = append(c.aggregated.Bins, &Bin { Location: binLocation, Pixels: litCopy, Hits: 1 })
+			c.aggregated.Bins = append(c.aggregated.Bins, &Bin{Location: binLocation, Pixels: litCopy, Hits: 1})
 		}
 		c.binWriteLock.Unlock()
 
@@ -236,20 +250,20 @@ func (c *Calibrate) incrementBin(binLocation Point, lit []int32) {
 }
 
 func isBin(a Point, b Point, threshold float64) bool {
-	return math.Sqrt(math.Pow(math.Abs(a.X - b.X), 2.0) + math.Pow(math.Abs(a.Y - b.Y), 2.0)) < threshold
+	return math.Sqrt(math.Pow(math.Abs(a.X-b.X), 2.0)+math.Pow(math.Abs(a.Y-b.Y), 2.0)) < threshold
 }
 
 func (c *Calibrate) convertCalibrationMessage(msg CalibrationMessage, lit []int32) *RawCalibrationData {
 	pointCount := len(msg.Locations) / 2
-	r := &RawCalibrationData {
-		Pixels: lit,
+	r := &RawCalibrationData{
+		Pixels:    lit,
 		Locations: make([]Point, pointCount, pointCount),
 	}
 
 	for i := 0; i < pointCount; i++ {
-		r.Locations[i] = Point {
-			X: msg.Locations[i * 2],
-			Y: msg.Locations[(i * 2) + 1],
+		r.Locations[i] = Point{
+			X: msg.Locations[i*2],
+			Y: msg.Locations[(i*2)+1],
 		}
 	}
 
@@ -257,12 +271,12 @@ func (c *Calibrate) convertCalibrationMessage(msg CalibrationMessage, lit []int3
 }
 
 func (c *Calibrate) store(data interface{}, filePath string) {
-	f, err := os.OpenFile(filePath, os.O_CREATE | os.O_WRONLY, 0664)
+	f, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY, 0664)
 	if err != nil {
 		panic(err.Error)
 	}
 
-	serialised, err := json.Marshal(data)
+	serialised, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
 		f.Close()
 		panic(err.Error)
@@ -275,20 +289,22 @@ func (c *Calibrate) store(data interface{}, filePath string) {
 	f.Close()
 }
 
-func (c *Calibrate) importCalibrationMessage(msg CalibrationMessage, lit []int32, patternNumber int, capture int, wg *sync.WaitGroup) {
+func (c *Calibrate) importCalibrationMessage(msg CalibrationMessage, lit []int32, capture int, interval int,
+	offset int, wg *sync.WaitGroup) {
+
 	r := c.convertCalibrationMessage(msg, lit)
 	c.rawData = append(c.rawData, r)
-	c.store(r, fmt.Sprintf("caldata/raw/raw-p%03d-%03d.json", patternNumber, capture))
+	c.store(r, fmt.Sprintf("caldata/raw/raw-%03d-%02d-%02d.json", capture, interval, offset))
 	wg.Done()
 }
 
-func (c *Calibrate) CalculateFrame(runtimeMs int64) (*Frame) {
+func (c *Calibrate) CalculateFrame(runtimeMs int64) *Frame {
 	return c.frame
 }
 
 func (c *Calibrate) Subscribe() {
 	if token := c.client.Subscribe(c.config.Mqtt.Topics.CalibrateClient, 0, c.handleClientMessages); token.Wait() && token.Error() != nil {
-        log.Println(token.Error())
-        os.Exit(1)
-    }
+		log.Println(token.Error())
+		os.Exit(1)
+	}
 }
