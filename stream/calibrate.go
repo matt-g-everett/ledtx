@@ -19,29 +19,51 @@ const (
 	binHitThreshold       int32   = 1
 )
 
+// Calibrate finds the locations of LEDs in polar co-ordinates where the radius is the distance projected
+// onto the cone-shaped tree from top to bottom
 type Calibrate struct {
-	config  Config
-	client  mqtt.Client
-	C       chan bool
-	started bool
-
-	iteration  int
-	bins       map[Point]map[int]int
-	frame      *Frame
-	msg        chan CalibrationMessage
-	rawData    []*RawCalibrationData
-	aggregated *AggregatedData
+	config         Config
+	client         mqtt.Client
+	C              chan bool
+	started        bool
+	iteration      int
+	bins           map[Point]map[int]int
+	onscreenFrame  *Frame
+	offscreenFrame *Frame
+	ackID          uint8
+	ackChan        chan AckMessage
+	dataChan       chan DataMessage
+	rawData        []*RawCalibrationData
+	aggregated     *AggregatedData
 
 	binWriteLock sync.Mutex
 }
 
+// NewCalibrate creates an instance of a Calibrate struct
 func NewCalibrate(config Config, client mqtt.Client) *Calibrate {
 	c := new(Calibrate)
 	c.config = config
 	c.client = client
 	c.C = make(chan bool)
 	c.started = false
+	c.ackID = 1
+
+	c.onscreenFrame = NewFrame()
+	c.offscreenFrame = NewFrame()
+
+	// Turn all the lights on to start calibration
+	c.showCalibrationFrame(1, 0)
+
 	return c
+}
+
+func (c *Calibrate) incrementAckID() {
+	c.ackID++
+
+	// Avoid zero when wrapping because that means "don't ack"
+	if c.ackID == 0 {
+		c.ackID = 1
+	}
 }
 
 func (c *Calibrate) prepareFS() {
@@ -50,21 +72,50 @@ func (c *Calibrate) prepareFS() {
 	os.MkdirAll("caldata/pixels", 0755)
 }
 
-func (c *Calibrate) prepareFrame(frame *Frame, interval int, offset int) []int32 {
-	pixelCount := len(frame.pixels)
+func (c *Calibrate) showCalibrationFrame(interval int, offset int) []int32 {
+	pixelCount := len(c.offscreenFrame.pixels)
 	lit := make([]int32, pixelCount, pixelCount)
 
 	for i := 0; i < pixelCount; i++ {
 		if (i-offset)%interval == 0 {
-			frame.pixels[i], _ = colorful.Hex("#202020")
+			c.offscreenFrame.pixels[i], _ = colorful.Hex("#202020")
 			lit[i] = 1
 		} else {
-			frame.pixels[i], _ = colorful.Hex("#000000")
+			c.offscreenFrame.pixels[i], _ = colorful.Hex("#000000")
 			lit[i] = 0
 		}
 	}
 
+	c.actionFrame(true)
+
 	return lit
+}
+
+func (c *Calibrate) showStatusFrame(resolved []Pixel) {
+	pixelCount := len(c.offscreenFrame.pixels)
+	for i := 0; i < pixelCount; i++ {
+		if resolved[i].Resolved {
+			c.offscreenFrame.pixels[i], _ = colorful.Hex("#002000")
+		} else {
+			c.offscreenFrame.pixels[i], _ = colorful.Hex("#000000")
+		}
+	}
+
+	c.actionFrame(true)
+}
+
+func (c *Calibrate) actionFrame(switchFrames bool) {
+	// Use the current ackID
+	c.offscreenFrame.ackID = c.ackID
+
+	if switchFrames {
+		tempFrame := c.onscreenFrame
+		c.onscreenFrame = c.offscreenFrame
+		c.offscreenFrame = tempFrame
+	}
+
+	// The next frame will have a new ACK ID
+	c.incrementAckID()
 }
 
 func (c *Calibrate) handleClientMessages(client mqtt.Client, msg mqtt.Message) {
@@ -73,8 +124,16 @@ func (c *Calibrate) handleClientMessages(client mqtt.Client, msg mqtt.Message) {
 
 	if !c.started && message.Type == "start" {
 		go c.runCalibration()
+	} else if message.Type == "ack" {
+		var ackMsg AckMessage
+		json.Unmarshal(msg.Payload(), &ackMsg)
+		fmt.Printf("Got ACK message %s\n", string(msg.Payload()))
+		c.ackChan <- ackMsg
 	} else if c.started && message.Type == "data" {
-		c.msg <- message
+		var dataMsg DataMessage
+		fmt.Printf("Got data message %s\n", string(msg.Payload()))
+		json.Unmarshal(msg.Payload(), &dataMsg)
+		c.dataChan <- dataMsg
 	}
 }
 
@@ -104,10 +163,10 @@ func (c *Calibrate) resolve(aggregated *AggregatedData, resolved []Pixel) {
 
 func (c *Calibrate) runCalibration() {
 	c.started = true
-	c.frame = NewFrame()
-	pixelCount := len(c.frame.pixels)
+	pixelCount := len(c.offscreenFrame.pixels)
 	c.aggregated = &AggregatedData{Bins: make([]*Bin, 0, 5000)}
-	c.msg = make(chan CalibrationMessage)
+	c.ackChan = make(chan AckMessage)
+	c.dataChan = make(chan DataMessage)
 	intervals := []int{1, 2, 3, 5, 7, 11, 13, 17, 19}
 	rawDataCount := 0
 	for _, interval := range intervals {
@@ -116,8 +175,10 @@ func (c *Calibrate) runCalibration() {
 
 	c.rawData = make([]*RawCalibrationData, 0, rawDataCount)
 
-	c.prepareFrame(c.frame, 1, 0) // Do this early allow the camera to adjust exposure
+	// Tell the controller that we're ready to start showing frames
 	c.C <- true
+
+	// Allow the camera to adjust exposure
 	time.Sleep(2 * time.Second)
 
 	c.prepareFS()
@@ -127,9 +188,31 @@ func (c *Calibrate) runCalibration() {
 	for _, interval := range intervals {
 		for o := 0; o < interval; o++ {
 
-			lit := c.prepareFrame(c.frame, interval, o)
+			lit := c.showCalibrationFrame(interval, o)
+			log.Printf("Sending initial ACK ID: %d", c.ackID)
 
 			for iter := 0; iter < 5; iter++ {
+				// Loop until we get a reply
+				exitTimeout := time.NewTimer(30 * time.Second)
+				for true {
+					ackTimeout := time.NewTimer(time.Second)
+					select {
+					case msg := <-c.ackChan:
+						log.Printf("Received ACK %d", msg.AckID)
+						// TODO: Store the ACK ID and check it
+						break
+					case <-ackTimeout.C:
+						log.Println("Timed-out waiting for ACK, incrementing the ackId")
+						c.actionFrame(false)
+						log.Printf("Sending retry ACK ID: %d", c.ackID)
+					case <-exitTimeout.C:
+						log.Println("Can't get an ACK from ledrx, giving up the calibration")
+						// Tell the controller to stop the calibration
+						c.C <- false
+						return
+					}
+				}
+
 				token := c.client.Publish(c.config.Mqtt.Topics.CalibrateServer, 0, false, "snapshot")
 				if o == 0 {
 					// The light level is different when the interval changes so wait for exposure adjustment
@@ -143,7 +226,7 @@ func (c *Calibrate) runCalibration() {
 
 				t := time.NewTimer(time.Second)
 				select {
-				case msg := <-c.msg:
+				case msg := <-c.dataChan:
 					log.Println("Received snapshot")
 					importWaitGroup.Add(1)
 					go c.importCalibrationMessage(msg, lit, capture, interval, o, &importWaitGroup)
@@ -178,14 +261,7 @@ func (c *Calibrate) runCalibration() {
 	c.store(resolved, "caldata/resolved.json")
 	log.Println("Resolved")
 
-	pixelCount = len(c.frame.pixels)
-	for i := 0; i < pixelCount; i++ {
-		if resolved[i].Resolved {
-			c.frame.pixels[i], _ = colorful.Hex("#002000")
-		} else {
-			c.frame.pixels[i], _ = colorful.Hex("#000000")
-		}
-	}
+	c.showStatusFrame(resolved)
 
 	token := c.client.Publish(c.config.Mqtt.Topics.CalibrateServer, 0, false, "snapshot")
 	token.Wait()
@@ -253,7 +329,7 @@ func isBin(a Point, b Point, threshold float64) bool {
 	return math.Sqrt(math.Pow(math.Abs(a.X-b.X), 2.0)+math.Pow(math.Abs(a.Y-b.Y), 2.0)) < threshold
 }
 
-func (c *Calibrate) convertCalibrationMessage(msg CalibrationMessage, lit []int32) *RawCalibrationData {
+func (c *Calibrate) convertCalibrationMessage(msg DataMessage, lit []int32) *RawCalibrationData {
 	pointCount := len(msg.Locations) / 2
 	r := &RawCalibrationData{
 		Pixels:    lit,
@@ -289,7 +365,7 @@ func (c *Calibrate) store(data interface{}, filePath string) {
 	f.Close()
 }
 
-func (c *Calibrate) importCalibrationMessage(msg CalibrationMessage, lit []int32, capture int, interval int,
+func (c *Calibrate) importCalibrationMessage(msg DataMessage, lit []int32, capture int, interval int,
 	offset int, wg *sync.WaitGroup) {
 
 	r := c.convertCalibrationMessage(msg, lit)
@@ -298,10 +374,12 @@ func (c *Calibrate) importCalibrationMessage(msg CalibrationMessage, lit []int32
 	wg.Done()
 }
 
+// CalculateFrame gets the onscreen frame
 func (c *Calibrate) CalculateFrame(runtimeMs int64) *Frame {
-	return c.frame
+	return c.onscreenFrame
 }
 
+// Subscribe to listen to the mobile app
 func (c *Calibrate) Subscribe() {
 	if token := c.client.Subscribe(c.config.Mqtt.Topics.CalibrateClient, 0, c.handleClientMessages); token.Wait() && token.Error() != nil {
 		log.Println(token.Error())

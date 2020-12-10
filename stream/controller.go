@@ -1,6 +1,7 @@
 package stream
 
 import (
+	"fmt"
 	"log"
 	"math/rand"
 	"time"
@@ -76,6 +77,7 @@ func NewController(runtimeMs int64, frameRate float64, animationTime time.Durati
 	return c
 }
 
+// CalculateFrame calculates a frame using the current and next animation
 func (c *Controller) CalculateFrame(runtimeMs int64) *Frame {
 	var f *Frame
 	c.runtimeMs = runtimeMs
@@ -175,6 +177,7 @@ func (c *Controller) Run() {
 			if start {
 				c.cycling = false
 				c.animation = c.calibrate
+				fmt.Println("Started displaying calibration frames...")
 			} else {
 				c.cycling = true
 				c.cycleAnimation()

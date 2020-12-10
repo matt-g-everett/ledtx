@@ -3,17 +3,17 @@ package stream
 import (
 	"time"
 
-	"github.com/eclipse/paho.mqtt.golang"
+	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
 // Streamer that streams RGB data frames to an ledrx device.
 type Streamer struct {
-	config Config
-	client mqtt.Client
-	calibrate *Calibrate
-	animation Animation
+	config      Config
+	client      mqtt.Client
+	calibrate   *Calibrate
+	animation   Animation
 	frameTimeMs int64
-	runtimeMs int64
+	runtimeMs   int64
 }
 
 // NewStreamer creates an instance of a Streamer.
@@ -26,7 +26,7 @@ func NewStreamer(config Config, client mqtt.Client) *Streamer {
 
 	// Use a controller as the animation, internally it will control multiple animations
 	s.calibrate = NewCalibrate(s.config, s.client)
-	c := NewController(s.runtimeMs, 1000.0 / float64(s.frameTimeMs), 30 * time.Second, s.calibrate)
+	c := NewController(s.runtimeMs, 1000.0/float64(s.frameTimeMs), 30*time.Second, s.calibrate)
 	s.animation = c
 	go c.Run() // The controller has a timer that needs to be started
 
