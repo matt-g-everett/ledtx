@@ -37,9 +37,11 @@ func NewStreamer(config Config, client mqtt.Client) *Streamer {
 func (s *Streamer) SendFrame() {
 	s.runtimeMs += s.frameTimeMs
 	f := s.animation.CalculateFrame(s.runtimeMs)
-	b, _ := f.MarshalBinary()
-	token := s.client.Publish(s.config.Mqtt.Topics.Stream, 2, false, b)
-	token.Wait()
+	if f != nil {
+		b, _ := f.MarshalBinary()
+		token := s.client.Publish(s.config.Mqtt.Topics.Stream, 0, false, b)
+		token.Wait()
+	}
 }
 
 // Run causes the Streamer to send Frames continuously.

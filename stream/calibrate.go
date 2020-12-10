@@ -30,6 +30,7 @@ type Calibrate struct {
 	bins           map[Point]map[int]int
 	onscreenFrame  *Frame
 	offscreenFrame *Frame
+	deliveryFrame  *Frame
 	ackID          uint8
 	ackChan        chan AckMessage
 	dataChan       chan DataMessage
@@ -45,6 +46,8 @@ func NewCalibrate(config Config, client mqtt.Client) *Calibrate {
 	c.config = config
 	c.client = client
 	c.C = make(chan bool)
+	c.ackChan = make(chan AckMessage)
+	c.dataChan = make(chan DataMessage)
 	c.started = false
 	c.ackID = 1
 
@@ -52,18 +55,20 @@ func NewCalibrate(config Config, client mqtt.Client) *Calibrate {
 	c.offscreenFrame = NewFrame()
 
 	// Turn all the lights on to start calibration
-	c.showCalibrationFrame(1, 0)
+	c.showCalibrationFrame(1, 0, false)
 
 	return c
 }
 
-func (c *Calibrate) incrementAckID() {
+func (c *Calibrate) incrementAckID() uint8 {
 	c.ackID++
 
 	// Avoid zero when wrapping because that means "don't ack"
 	if c.ackID == 0 {
 		c.ackID = 1
 	}
+
+	return c.ackID
 }
 
 func (c *Calibrate) prepareFS() {
@@ -72,7 +77,7 @@ func (c *Calibrate) prepareFS() {
 	os.MkdirAll("caldata/pixels", 0755)
 }
 
-func (c *Calibrate) showCalibrationFrame(interval int, offset int) []int32 {
+func (c *Calibrate) showCalibrationFrame(interval int, offset int, ack bool) []int32 {
 	pixelCount := len(c.offscreenFrame.pixels)
 	lit := make([]int32, pixelCount, pixelCount)
 
@@ -86,7 +91,7 @@ func (c *Calibrate) showCalibrationFrame(interval int, offset int) []int32 {
 		}
 	}
 
-	c.actionFrame(true)
+	c.actionFrame(true, ack)
 
 	return lit
 }
@@ -101,21 +106,29 @@ func (c *Calibrate) showStatusFrame(resolved []Pixel) {
 		}
 	}
 
-	c.actionFrame(true)
+	c.actionFrame(true, false)
 }
 
-func (c *Calibrate) actionFrame(switchFrames bool) {
-	// Use the current ackID
-	c.offscreenFrame.ackID = c.ackID
-
+func (c *Calibrate) actionFrame(switchFrames bool, ack bool) {
 	if switchFrames {
+		if ack {
+			c.offscreenFrame.ackID = c.incrementAckID()
+		} else {
+			c.offscreenFrame.ackID = 0
+		}
+
 		tempFrame := c.onscreenFrame
 		c.onscreenFrame = c.offscreenFrame
 		c.offscreenFrame = tempFrame
+	} else {
+		if ack {
+			c.onscreenFrame.ackID = c.incrementAckID()
+		} else {
+			c.onscreenFrame.ackID = 0
+		}
 	}
 
-	// The next frame will have a new ACK ID
-	c.incrementAckID()
+	c.deliveryFrame = c.onscreenFrame
 }
 
 func (c *Calibrate) handleClientMessages(client mqtt.Client, msg mqtt.Message) {
@@ -127,11 +140,9 @@ func (c *Calibrate) handleClientMessages(client mqtt.Client, msg mqtt.Message) {
 	} else if message.Type == "ack" {
 		var ackMsg AckMessage
 		json.Unmarshal(msg.Payload(), &ackMsg)
-		fmt.Printf("Got ACK message %s\n", string(msg.Payload()))
 		c.ackChan <- ackMsg
 	} else if c.started && message.Type == "data" {
 		var dataMsg DataMessage
-		fmt.Printf("Got data message %s\n", string(msg.Payload()))
 		json.Unmarshal(msg.Payload(), &dataMsg)
 		c.dataChan <- dataMsg
 	}
@@ -165,8 +176,6 @@ func (c *Calibrate) runCalibration() {
 	c.started = true
 	pixelCount := len(c.offscreenFrame.pixels)
 	c.aggregated = &AggregatedData{Bins: make([]*Bin, 0, 5000)}
-	c.ackChan = make(chan AckMessage)
-	c.dataChan = make(chan DataMessage)
 	intervals := []int{1, 2, 3, 5, 7, 11, 13, 17, 19}
 	rawDataCount := 0
 	for _, interval := range intervals {
@@ -188,23 +197,29 @@ func (c *Calibrate) runCalibration() {
 	for _, interval := range intervals {
 		for o := 0; o < interval; o++ {
 
-			lit := c.showCalibrationFrame(interval, o)
-			log.Printf("Sending initial ACK ID: %d", c.ackID)
+			// Prepare the frame, we'll action it on each iteration
+			lit := c.showCalibrationFrame(interval, o, false)
 
-			for iter := 0; iter < 5; iter++ {
+			for iter := 0; iter < 10; iter++ {
+				c.actionFrame(false, true)
+				currentAckID := c.onscreenFrame.ackID
+
 				// Loop until we get a reply
 				exitTimeout := time.NewTimer(30 * time.Second)
-				for true {
-					ackTimeout := time.NewTimer(time.Second)
+				gotAck := false
+				for !gotAck {
+					ackTimeout := time.NewTimer(1 * time.Second)
 					select {
 					case msg := <-c.ackChan:
-						log.Printf("Received ACK %d", msg.AckID)
-						// TODO: Store the ACK ID and check it
-						break
+						if currentAckID == msg.AckID {
+							gotAck = true
+						} else {
+							log.Printf("Frame ACK %d (miss)", msg.AckID)
+						}
 					case <-ackTimeout.C:
-						log.Println("Timed-out waiting for ACK, incrementing the ackId")
-						c.actionFrame(false)
-						log.Printf("Sending retry ACK ID: %d", c.ackID)
+						log.Println("Timed-out waiting for ACK, incrementing the ackID")
+						c.actionFrame(false, true)
+						currentAckID = c.onscreenFrame.ackID
 					case <-exitTimeout.C:
 						log.Println("Can't get an ACK from ledrx, giving up the calibration")
 						// Tell the controller to stop the calibration
@@ -213,25 +228,21 @@ func (c *Calibrate) runCalibration() {
 					}
 				}
 
-				token := c.client.Publish(c.config.Mqtt.Topics.CalibrateServer, 0, false, "snapshot")
-				if o == 0 {
+				if o == 0 && iter == 0 {
 					// The light level is different when the interval changes so wait for exposure adjustment
-					time.Sleep(1 * time.Second)
-				} else {
-					time.Sleep(100 * time.Millisecond)
+					time.Sleep(500 * time.Millisecond)
 				}
 
+				token := c.client.Publish(c.config.Mqtt.Topics.CalibrateServer, 0, false, "snapshot")
 				token.Wait()
-				log.Println("Published snapshot")
 
 				t := time.NewTimer(time.Second)
 				select {
 				case msg := <-c.dataChan:
-					log.Println("Received snapshot")
 					importWaitGroup.Add(1)
 					go c.importCalibrationMessage(msg, lit, capture, interval, o, &importWaitGroup)
 				case <-t.C:
-					log.Println("Message timed-out, retrying")
+					log.Println("Data message timed-out, retrying")
 				}
 
 				capture++
@@ -376,7 +387,10 @@ func (c *Calibrate) importCalibrationMessage(msg DataMessage, lit []int32, captu
 
 // CalculateFrame gets the onscreen frame
 func (c *Calibrate) CalculateFrame(runtimeMs int64) *Frame {
-	return c.onscreenFrame
+	f := c.deliveryFrame
+	// The frame should only be delivered once for the calibrate animation
+	c.deliveryFrame = nil
+	return f
 }
 
 // Subscribe to listen to the mobile app
