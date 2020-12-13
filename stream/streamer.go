@@ -21,7 +21,7 @@ func NewStreamer(config Config, client mqtt.Client) *Streamer {
 	s := new(Streamer)
 	s.config = config
 	s.client = client
-	s.frameTimeMs = 17
+	s.frameTimeMs = 20
 	s.runtimeMs = 0
 
 	// Use a controller as the animation, internally it will control multiple animations

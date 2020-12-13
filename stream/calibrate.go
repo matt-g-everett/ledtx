@@ -49,7 +49,7 @@ func NewCalibrate(config Config, client mqtt.Client) *Calibrate {
 	c.ackChan = make(chan AckMessage, 50)
 	c.dataChan = make(chan DataMessage, 50)
 	c.started = false
-	c.ackID = 1
+	c.ackID = 0
 
 	c.onscreenFrame = NewFrame()
 	c.offscreenFrame = NewFrame()
@@ -215,6 +215,7 @@ func (c *Calibrate) runCalibration() {
 	c.started = true
 	pixelCount := len(c.offscreenFrame.pixels)
 	c.aggregated = &AggregatedData{Bins: make([]*Bin, 0, 5000)}
+	c.ackID = 0
 	intervals := []int{1, 2, 3, 5, 7, 11} //, 13, 17, 19}
 	rawDataCount := 0
 	for _, interval := range intervals {
@@ -247,7 +248,7 @@ func (c *Calibrate) runCalibration() {
 			exitTimeout := time.NewTimer(30 * time.Second)
 			gotAck := false
 			for !gotAck {
-				ackTimeout := time.NewTimer(300 * time.Millisecond)
+				ackTimeout := time.NewTimer(1000 * time.Millisecond)
 				select {
 				case msg := <-c.ackChan:
 					if currentAckID == msg.AckID {
