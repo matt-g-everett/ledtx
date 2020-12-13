@@ -4,5 +4,6 @@ mqtt:
   url: tcp://10.0.0.1:31883
   topics:
     stream: home/xmastree/stream
+    ack: home/xmastree/ack
     calibrateServer: home/xmastree/cal/server
     calibrateClient: home/xmastree/cal/client

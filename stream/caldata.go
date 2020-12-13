@@ -14,7 +14,7 @@ type CalibrationMessage struct {
 // DataMessage conveying the locations of LEDs from the mobile app
 type DataMessage struct {
 	CalibrationMessage
-	Locations []float64 `json:"locations"`
+	Locations [][]float64 `json:"locations"`
 }
 
 // AckMessage indicates that a frame has been displayed

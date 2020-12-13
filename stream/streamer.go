@@ -37,6 +37,8 @@ func NewStreamer(config Config, client mqtt.Client) *Streamer {
 func (s *Streamer) SendFrame() {
 	s.runtimeMs += s.frameTimeMs
 	f := s.animation.CalculateFrame(s.runtimeMs)
+
+	// The animation can opt to not send a frame by returning nil
 	if f != nil {
 		b, _ := f.MarshalBinary()
 		token := s.client.Publish(s.config.Mqtt.Topics.Stream, 0, false, b)

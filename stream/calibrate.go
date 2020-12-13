@@ -46,15 +46,15 @@ func NewCalibrate(config Config, client mqtt.Client) *Calibrate {
 	c.config = config
 	c.client = client
 	c.C = make(chan bool)
-	c.ackChan = make(chan AckMessage)
-	c.dataChan = make(chan DataMessage)
+	c.ackChan = make(chan AckMessage, 50)
+	c.dataChan = make(chan DataMessage, 50)
 	c.started = false
 	c.ackID = 1
 
 	c.onscreenFrame = NewFrame()
 	c.offscreenFrame = NewFrame()
 
-	// Turn all the lights on to start calibration
+	// Turn all the lights on for the initial animation state
 	c.showCalibrationFrame(1, 0, false)
 
 	return c
@@ -128,23 +128,40 @@ func (c *Calibrate) actionFrame(switchFrames bool, ack bool) {
 		}
 	}
 
+	if c.onscreenFrame.ackID != 0 {
+		log.Printf("Sending ACK %d", c.onscreenFrame.ackID)
+	}
 	c.deliveryFrame = c.onscreenFrame
 }
 
-func (c *Calibrate) handleClientMessages(client mqtt.Client, msg mqtt.Message) {
+func (c *Calibrate) handleCalClientMessages(client mqtt.Client, msg mqtt.Message) {
 	var message CalibrationMessage
-	json.Unmarshal(msg.Payload(), &message)
+	if err := json.Unmarshal(msg.Payload(), &message); err != nil {
+		log.Printf("Failed to decode calibration message. %s", err)
+		return
+	}
 
 	if !c.started && message.Type == "start" {
 		go c.runCalibration()
-	} else if message.Type == "ack" {
-		var ackMsg AckMessage
-		json.Unmarshal(msg.Payload(), &ackMsg)
-		c.ackChan <- ackMsg
 	} else if c.started && message.Type == "data" {
 		var dataMsg DataMessage
 		json.Unmarshal(msg.Payload(), &dataMsg)
 		c.dataChan <- dataMsg
+	}
+}
+
+func (c *Calibrate) handleAckMessages(client mqtt.Client, msg mqtt.Message) {
+	var message AckMessage
+	if err := json.Unmarshal(msg.Payload(), &message); err != nil {
+		log.Printf("Failed to decode ACK message. %s", err)
+		return
+	}
+
+	if message.Type == "ack" {
+		log.Printf("Recieved ACK %d, routing to channel.", message.AckID)
+		c.ackChan <- message
+	} else {
+		log.Printf("Unrecognised message type %s on ack queue.", message.Type)
 	}
 }
 
@@ -172,11 +189,33 @@ func (c *Calibrate) resolve(aggregated *AggregatedData, resolved []Pixel) {
 	}
 }
 
+func (c *Calibrate) drainAckChannel() {
+	for {
+		select {
+		case ackMsg := <-c.ackChan:
+			log.Printf("Drained ACK %d", ackMsg.AckID)
+		default:
+			return
+		}
+	}
+}
+
+func (c *Calibrate) drainDataChannel() {
+	for {
+		select {
+		case <-c.dataChan:
+			log.Println("Drained data message")
+		default:
+			return
+		}
+	}
+}
+
 func (c *Calibrate) runCalibration() {
 	c.started = true
 	pixelCount := len(c.offscreenFrame.pixels)
 	c.aggregated = &AggregatedData{Bins: make([]*Bin, 0, 5000)}
-	intervals := []int{1, 2, 3, 5, 7, 11, 13, 17, 19}
+	intervals := []int{1, 2, 3, 5, 7, 11} //, 13, 17, 19}
 	rawDataCount := 0
 	for _, interval := range intervals {
 		rawDataCount += interval
@@ -184,11 +223,12 @@ func (c *Calibrate) runCalibration() {
 
 	c.rawData = make([]*RawCalibrationData, 0, rawDataCount)
 
+	// Allow the camera to adjust exposure
+	c.showCalibrationFrame(1, 0, false)
+	time.Sleep(2 * time.Second)
+
 	// Tell the controller that we're ready to start showing frames
 	c.C <- true
-
-	// Allow the camera to adjust exposure
-	time.Sleep(2 * time.Second)
 
 	c.prepareFS()
 	capture := 0
@@ -196,53 +236,54 @@ func (c *Calibrate) runCalibration() {
 
 	for _, interval := range intervals {
 		for o := 0; o < interval; o++ {
+			// Make sure there are no ACKs in the channel
+			c.drainAckChannel()
 
-			// Prepare the frame, we'll action it on each iteration
-			lit := c.showCalibrationFrame(interval, o, false)
+			// Show the frame
+			lit := c.showCalibrationFrame(interval, o, true)
+			currentAckID := c.onscreenFrame.ackID
 
-			for iter := 0; iter < 10; iter++ {
-				c.actionFrame(false, true)
-				currentAckID := c.onscreenFrame.ackID
-
-				// Loop until we get a reply
-				exitTimeout := time.NewTimer(30 * time.Second)
-				gotAck := false
-				for !gotAck {
-					ackTimeout := time.NewTimer(1 * time.Second)
-					select {
-					case msg := <-c.ackChan:
-						if currentAckID == msg.AckID {
-							gotAck = true
-						} else {
-							log.Printf("Frame ACK %d (miss)", msg.AckID)
-						}
-					case <-ackTimeout.C:
-						log.Println("Timed-out waiting for ACK, incrementing the ackID")
-						c.actionFrame(false, true)
-						currentAckID = c.onscreenFrame.ackID
-					case <-exitTimeout.C:
-						log.Println("Can't get an ACK from ledrx, giving up the calibration")
-						// Tell the controller to stop the calibration
-						c.C <- false
-						return
+			// Loop until we get an ACK
+			exitTimeout := time.NewTimer(30 * time.Second)
+			gotAck := false
+			for !gotAck {
+				ackTimeout := time.NewTimer(300 * time.Millisecond)
+				select {
+				case msg := <-c.ackChan:
+					if currentAckID == msg.AckID {
+						gotAck = true
+					} else {
+						log.Printf("Frame ACK %d (miss)", msg.AckID)
 					}
+				case <-ackTimeout.C:
+					log.Printf("Timed-out waiting for ACK %d, incrementing the ackID", currentAckID)
+					c.actionFrame(false, true)
+					currentAckID = c.onscreenFrame.ackID
+				case <-exitTimeout.C:
+					log.Println("Can't get an ACK from ledrx, giving up the calibration")
+					// Tell the controller to stop the calibration
+					c.C <- false
+					return
 				}
+			}
 
-				if o == 0 && iter == 0 {
-					// The light level is different when the interval changes so wait for exposure adjustment
-					time.Sleep(500 * time.Millisecond)
-				}
-
+			// Grab a snapshot for the frame that's been shown (each snapshot takes multiple pictures in the app)
+			gotData := false
+			for !gotData {
+				c.drainDataChannel()
 				token := c.client.Publish(c.config.Mqtt.Topics.CalibrateServer, 0, false, "snapshot")
 				token.Wait()
 
-				t := time.NewTimer(time.Second)
+				t := time.NewTimer(5 * time.Second)
 				select {
 				case msg := <-c.dataChan:
 					importWaitGroup.Add(1)
 					go c.importCalibrationMessage(msg, lit, capture, interval, o, &importWaitGroup)
+					//time.Sleep(40 * time.Millisecond)
+					gotData = true
 				case <-t.C:
-					log.Println("Data message timed-out, retrying")
+					log.Println("Data message timed-out, retrying...")
+					time.Sleep(1 * time.Second) // Back-off a little
 				}
 
 				capture++
@@ -340,8 +381,8 @@ func isBin(a Point, b Point, threshold float64) bool {
 	return math.Sqrt(math.Pow(math.Abs(a.X-b.X), 2.0)+math.Pow(math.Abs(a.Y-b.Y), 2.0)) < threshold
 }
 
-func (c *Calibrate) convertCalibrationMessage(msg DataMessage, lit []int32) *RawCalibrationData {
-	pointCount := len(msg.Locations) / 2
+func (c *Calibrate) convertCalibrationMessage(locations []float64, lit []int32) *RawCalibrationData {
+	pointCount := len(locations) / 2
 	r := &RawCalibrationData{
 		Pixels:    lit,
 		Locations: make([]Point, pointCount, pointCount),
@@ -349,8 +390,8 @@ func (c *Calibrate) convertCalibrationMessage(msg DataMessage, lit []int32) *Raw
 
 	for i := 0; i < pointCount; i++ {
 		r.Locations[i] = Point{
-			X: msg.Locations[i*2],
-			Y: msg.Locations[(i*2)+1],
+			X: locations[i*2],
+			Y: locations[(i*2)+1],
 		}
 	}
 
@@ -379,9 +420,11 @@ func (c *Calibrate) store(data interface{}, filePath string) {
 func (c *Calibrate) importCalibrationMessage(msg DataMessage, lit []int32, capture int, interval int,
 	offset int, wg *sync.WaitGroup) {
 
-	r := c.convertCalibrationMessage(msg, lit)
-	c.rawData = append(c.rawData, r)
-	c.store(r, fmt.Sprintf("caldata/raw/raw-%03d-%02d-%02d.json", capture, interval, offset))
+	for iteration, l := range msg.Locations {
+		r := c.convertCalibrationMessage(l, lit)
+		c.rawData = append(c.rawData, r)
+		c.store(r, fmt.Sprintf("caldata/raw/raw-%03d-%02d-%02d-%02d.json", capture, iteration, interval, offset))
+	}
 	wg.Done()
 }
 
@@ -395,7 +438,12 @@ func (c *Calibrate) CalculateFrame(runtimeMs int64) *Frame {
 
 // Subscribe to listen to the mobile app
 func (c *Calibrate) Subscribe() {
-	if token := c.client.Subscribe(c.config.Mqtt.Topics.CalibrateClient, 0, c.handleClientMessages); token.Wait() && token.Error() != nil {
+	if token := c.client.Subscribe(c.config.Mqtt.Topics.CalibrateClient, 0, c.handleCalClientMessages); token.Wait() && token.Error() != nil {
+		log.Println(token.Error())
+		os.Exit(1)
+	}
+
+	if token := c.client.Subscribe(c.config.Mqtt.Topics.Ack, 0, c.handleAckMessages); token.Wait() && token.Error() != nil {
 		log.Println(token.Error())
 		os.Exit(1)
 	}

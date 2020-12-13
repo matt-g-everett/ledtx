@@ -84,6 +84,10 @@ func (c *Controller) CalculateFrame(runtimeMs int64) *Frame {
 	if c.nextAnimation != nil {
 		f1 := c.animation.CalculateFrame(runtimeMs)
 		f2 := c.nextAnimation.CalculateFrame(runtimeMs)
+		if f1 == nil || f2 == nil {
+			return f2
+		}
+
 		f = f1.InterpolateFrame(f2, c.transition)
 		c.transition += c.transitionIncrement
 
