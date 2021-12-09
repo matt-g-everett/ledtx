@@ -144,23 +144,23 @@ func (c *Controller) createKnownTwinkle(foreColour colorful.Color, backColour co
 func (c *Controller) createRandomTwinkle(foreColour colorful.Color) (Animation, string) {
 	randomColor := colorful.Hsl(rand.Float64()*360.0, 1.0, 0.02)
 	animation := NewTwinkle(
-		rand.Int31n(150)+10,
+		rand.Int31n(100)+10,
 		foreColour, randomColor, c.runtimeMs)
 
 	return animation, randomColor.Hex()
 }
 
 func (c *Controller) createFixedRainbow() Animation {
-	return NewGradientTrail(c.rainbowGradient, 1200, 0.06, c.runtimeMs, -0.5)
+	return NewGradientTrail(c.rainbowGradient, 1200, 0.06, c.runtimeMs, 0.0)
 }
 
 func (c *Controller) createKnownRainbow() Animation {
-	return NewGradientTrail(c.rainbowGradient, 180, 0.06, c.runtimeMs, -0.03)
+	return NewGradientTrail(c.rainbowGradient, 1200, 0.06, c.runtimeMs, -0.5)
 }
 
 func (c *Controller) createRandomRainbow() Animation {
 	trailLength := rand.Int31n(970) + 30
-	return NewGradientTrail(c.rainbowGradient, uint32(trailLength), 0.06, c.runtimeMs, c.getRandomSpeed(0, 2.0))
+	return NewGradientTrail(c.rainbowGradient, uint32(trailLength), 0.06, c.runtimeMs, c.getRandomSpeed(0, 1.4))
 }
 
 func (c *Controller) createCandyCane() Animation {
@@ -239,7 +239,7 @@ func (c *Controller) Run() {
 		select {
 		case <-publishTimer.C:
 			c.cycleAnimation()
-		case start, _ := <-c.calibrate.C:
+		case start := <-c.calibrate.C:
 			if start {
 				c.cycling = false
 				c.animation = c.calibrate
