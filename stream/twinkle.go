@@ -7,7 +7,7 @@ import (
 )
 
 type scintillatingParticle struct {
-	lut []float64
+	lut     []float64
 	current int
 }
 
@@ -28,13 +28,11 @@ func (p *scintillatingParticle) gain() float64 {
 	return p.lut[p.current]
 }
 
-
 // A Twinkle is an Animation that twinkles random particles.
 type Twinkle struct {
-	numParticles int
-	foreColour colorful.Color
-	backColour colorful.Color
-	runtimeMs int64
+	foreColour          colorful.Color
+	backColour          colorful.Color
+	runtimeMs           int64
 	scintillationChance int32
 
 	particles map[int]*scintillatingParticle
@@ -42,7 +40,7 @@ type Twinkle struct {
 
 // NewTwinkle creates an instance of a Twinkle object.
 func NewTwinkle(scintillationChance int32, foreColour colorful.Color,
-	backColour colorful.Color, runtimeMs int64) (*Twinkle) {
+	backColour colorful.Color, runtimeMs int64) *Twinkle {
 
 	t := new(Twinkle)
 	t.foreColour = foreColour
@@ -55,7 +53,7 @@ func NewTwinkle(scintillationChance int32, foreColour colorful.Color,
 }
 
 // CalculateFrame creates a new Frame instance.
-func (t *Twinkle) CalculateFrame(runtimeMs int64) (*Frame) {
+func (t *Twinkle) CalculateFrame(runtimeMs int64) *Frame {
 	t.runtimeMs = runtimeMs
 
 	f := NewFrame()
@@ -74,7 +72,7 @@ func (t *Twinkle) CalculateFrame(runtimeMs int64) (*Frame) {
 
 		if found || created {
 			h, c, l := t.foreColour.Hcl()
-			color = colorful.Hcl(h, c, l * p.gain())
+			color = colorful.Hcl(h, c, l*p.gain())
 
 			if !p.increment() {
 				delete(t.particles, i)

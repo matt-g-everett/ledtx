@@ -6,17 +6,18 @@ import (
 
 // A GradientTrail is an Animation that cycles a gradient along an led strip.
 type GradientTrail struct {
-	gradient GradientTable
-	current float64
+	gradient    GradientTable
+	current     float64
 	trailLength uint32
-	luminance float64
-	runtimeMs int64
+	luminance   float64
+	runtimeMs   int64
 	pixelsPerMs float64
+	adjusted    bool
 }
 
 // NewGradientTrail creates an instance of a GradientTrail object.
 func NewGradientTrail(gradient GradientTable, trailLength uint32,
-	luminance float64, startTimeMs int64, pixelsPerMs float64) (*GradientTrail) {
+	luminance float64, startTimeMs int64, pixelsPerMs float64) *GradientTrail {
 
 	g := new(GradientTrail)
 	g.gradient = gradient
@@ -24,19 +25,24 @@ func NewGradientTrail(gradient GradientTable, trailLength uint32,
 	g.luminance = luminance
 	g.runtimeMs = startTimeMs
 	g.pixelsPerMs = pixelsPerMs
+	g.adjusted = true
 	g.current = 0
 
 	return g
 }
 
 // CalculateFrame creates a new Frame instance.
-func (g *GradientTrail) CalculateFrame(runtimeMs int64) (*Frame) {
+func (g *GradientTrail) CalculateFrame(runtimeMs int64) *Frame {
+	adjustmentFactor := 1.0
 	f := NewFrame()
-	saturation := 1.0
 	numPixels := len(f.pixels)
 	for i := 0; i < numPixels; i++ {
-		t := math.Mod((float64(i + numPixels) - g.current), float64(g.trailLength)) / float64(g.trailLength)
-		c := g.gradient.GetColor(t, saturation, g.luminance)
+		if g.adjusted {
+			adjustmentFactor = 1.0 + 1.4*(float64(numPixels-i)/float64(numPixels))
+		}
+		adjustedTrailLength := float64(g.trailLength) * adjustmentFactor
+		t := math.Mod((float64(i+numPixels)-(adjustmentFactor*g.current)), float64(adjustedTrailLength)) / float64(adjustedTrailLength)
+		c := g.gradient.GetColor(t, g.luminance)
 		f.pixels[i] = c
 	}
 

@@ -1,6 +1,7 @@
 package stream
 
 import (
+	"log"
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -21,12 +22,14 @@ func NewStreamer(config Config, client mqtt.Client) *Streamer {
 	s := new(Streamer)
 	s.config = config
 	s.client = client
-	s.frameTimeMs = 20
+	s.frameTimeMs = 21
 	s.runtimeMs = 0
 
 	// Use a controller as the animation, internally it will control multiple animations
 	s.calibrate = NewCalibrate(s.config, s.client)
-	c := NewController(s.runtimeMs, 1000.0/float64(s.frameTimeMs), 30*time.Second, s.calibrate)
+	frameRate := 1000.0 / float64(s.frameTimeMs)
+	log.Printf("Frame rate: %0.1f fps", frameRate)
+	c := NewController(s.runtimeMs, frameRate, 30*time.Second, s.calibrate)
 	s.animation = c
 	go c.Run() // The controller has a timer that needs to be started
 

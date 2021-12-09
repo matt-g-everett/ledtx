@@ -1,0 +1,8 @@
+{
+    "go.delveConfig": {
+        "apiVersion": 2,
+        "debugAdapter": "dlv-dap",
+        "showGlobalVariables": true,
+        "substitutePath": []
+    }
+}
