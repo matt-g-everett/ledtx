@@ -40,16 +40,22 @@ func (g *GradientTrail) CalculateFrame(runtimeMs int64) *Frame {
 		if g.adjusted {
 			adjustmentFactor = 1.0 + 1.4*(float64(numPixels-i)/float64(numPixels))
 		}
+
 		adjustedTrailLength := float64(g.trailLength) * adjustmentFactor
-		t := math.Mod((float64(i+numPixels)-(adjustmentFactor*g.current)), float64(adjustedTrailLength)) / float64(adjustedTrailLength)
+		t := math.Mod(float64(i)+(adjustmentFactor*g.current), float64(adjustedTrailLength)) / float64(adjustedTrailLength)
 		c := g.gradient.GetColor(t, g.luminance)
 		f.pixels[i] = c
 	}
 
 	intervalMs := runtimeMs - g.runtimeMs
 	g.runtimeMs = runtimeMs
+
 	g.current += g.pixelsPerMs * float64(intervalMs)
 	g.current = math.Mod(g.current, float64(g.trailLength))
+	// Deal with wrapping of negative current
+	if g.current < 0 {
+		g.current = float64(g.trailLength) + g.current
+	}
 
 	return f
 }
