@@ -1,6 +1,8 @@
 package stream
 
 import (
+	"math"
+
 	"github.com/lucasb-eyer/go-colorful"
 )
 
@@ -18,8 +20,16 @@ func (g GradientTable) GetColor(t float64, l float64) colorful.Color {
 		c2 := g[i+1]
 		if c1.Pos <= t && t <= c2.Pos {
 			// We are in between c1 and c2. Go blend them!
-			h := (((t - c1.Pos) / (c2.Pos - c1.Pos)) * (c2.Hue - c1.Hue)) + c1.Hue
-			s := (((t - c1.Pos) / (c2.Pos - c1.Pos)) * (c2.Saturation - c1.Saturation)) + c1.Saturation
+
+			hRatio := (t - c1.Pos) / (c2.Pos - c1.Pos)
+			hRaw := (hRatio * (c2.Hue - c1.Hue)) + c1.Hue
+			// Clamp hue to a positive number and wrap it
+			h := math.Mod(math.Max(hRaw, 0.0), 360.0)
+
+			sRatio := (t - c1.Pos) / (c2.Pos - c1.Pos)
+			sRaw := sRatio*(c2.Saturation-c1.Saturation) + c1.Saturation
+			// Clamp saturation between 0.0 and 1.0
+			s := math.Max(math.Min(sRaw, 1.0), 0.0)
 			return colorful.Hcl(h, s, l)
 		}
 	}
