@@ -24,7 +24,7 @@ type Controller struct {
 	transitionTimeSecs  float64
 	transitionIncrement float64
 	rainbowGradient     GradientTable
-	candyCaneGradient   GradientTable
+	rainbowStepGradient GradientTable
 }
 
 // NewController creates an instance of a Controller.
@@ -46,11 +46,19 @@ func NewController(runtimeMs int64, frameRate float64, animationTime time.Durati
 		{360.0, 1.0, 1.0},  // Pink wrap
 	}
 
-	c.candyCaneGradient = GradientTable{
-		{80.0, 0.0, 0.0}, // White
-		{80.0, 0.0, 0.5}, // White
-		{80.0, 1.0, 0.5}, // Red
-		{80.0, 1.0, 1.0}, // Red
+	c.rainbowStepGradient = GradientTable{
+		{80.0, 1.0, 0.0},    // Red
+		{80.0, 1.0, 0.167},  // Red
+		{86.0, 1.0, 0.167},  // Orange
+		{86.0, 1.0, 0.333},  // Orange
+		{95.0, 1.0, 0.333},  // Yellow
+		{95.0, 1.0, 0.5},    // Yellow
+		{160.0, 1.0, 0.5},   // Green
+		{160.0, 1.0, 0.666}, // Green
+		{280.0, 1.0, 0.666}, // Blue
+		{280.0, 1.0, 0.833}, // Blue
+		{328.0, 1.0, 0.833}, // Violet
+		{328.0, 1.0, 1.0},   // Violet
 	}
 
 	c.animation = nil
@@ -66,7 +74,12 @@ func NewController(runtimeMs int64, frameRate float64, animationTime time.Durati
 	c.transitionIncrement = 1.0 / (c.frameRate * c.transitionTimeSecs)
 
 	c.animationPlaylist = []string{
-
+		//"gradient:purplegoldblue",
+		"multi:random",
+		"candycane:random",
+		"gradient:pinkorangewhite",
+		"multi:random3",
+		"gradient:rainbowstep",
 		"multi:purplegoldblue",
 		"rainbow:fixed",
 		"candycane:random",
@@ -77,23 +90,29 @@ func NewController(runtimeMs int64, frameRate float64, animationTime time.Durati
 		"rainbow:random",
 		"multi:purplegoldblue",
 		"twinkle:random",
+		"multi:random3",
 		"candycane:random",
+		"multi:random2",
 		"twinkle:pink",
 		"multi:redgreengold",
 		"rainbow:normal",
 		"multi:redwhiteblue",
+		"gradient:pinkorangewhite",
 		"twinkle:random",
 		"candycane:random",
 		"multi:redgreengold",
 		"twinkle:gold",
+		"multi:random2",
 		"rainbow:random",
 		"multi:purplegoldblue",
 		"twinkle:random",
+		"multi:random3",
 		"candycane:random",
 		"multi:pinksilverblue",
 		"twinkle:silver",
 		"multi:redwhiteblue",
 		"rainbow:random",
+		"multi:random3",
 	}
 	c.animationIndex = 0
 	c.animation, _ = c.getAnimation()
@@ -137,6 +156,19 @@ func (c *Controller) getRandomSpeed(low float64, high float64) float64 {
 	}
 }
 
+func (c *Controller) createStripes(stripeColours []colorful.Color) GradientTable {
+	numStripes := len(stripeColours)
+	table := make(GradientTable, 0, numStripes)
+	increment := 1.0 / float64(numStripes)
+	for i := 0; i < numStripes; i++ {
+		h, c, _ := stripeColours[i].Hcl()
+		table = append(table, GradientTable{{h, c, float64(i) * increment}}...)
+		table = append(table, GradientTable{{h, c, float64(i+1) * increment}}...)
+	}
+
+	return table
+}
+
 func (c *Controller) createKnownTwinkle(foreColour colorful.Color, backColour colorful.Color) Animation {
 	return NewTwinkle(rand.Int31n(150)+10, foreColour, backColour, c.runtimeMs)
 }
@@ -151,7 +183,7 @@ func (c *Controller) createRandomTwinkle(foreColour colorful.Color) (Animation, 
 }
 
 func (c *Controller) createFixedRainbow() Animation {
-	return NewGradientTrail(c.rainbowGradient, 1200, 0.06, c.runtimeMs, 0.0)
+	return NewGradientTrail(c.rainbowGradient, 600, 0.06, c.runtimeMs, 0.0)
 }
 
 func (c *Controller) createKnownRainbow() Animation {
@@ -160,28 +192,53 @@ func (c *Controller) createKnownRainbow() Animation {
 
 func (c *Controller) createRandomRainbow() Animation {
 	trailLength := rand.Int31n(970) + 30
-	return NewGradientTrail(c.rainbowGradient, uint32(trailLength), 0.06, c.runtimeMs, c.getRandomSpeed(0, 1.4))
+	return NewGradientTrail(c.rainbowGradient, uint32(trailLength), 0.06, c.runtimeMs, c.getRandomSpeed(0, 0.7))
 }
 
-func (c *Controller) createCandyCane() Animation {
-	return NewGradientTrail(c.candyCaneGradient, 350, 0.06, c.runtimeMs, c.getRandomSpeed(0.1, 0.8))
+func (c *Controller) createGradient(gradient GradientTable, trailLength uint32, speed float64) Animation {
+	return NewGradientTrail(gradient, trailLength, 0.06, c.runtimeMs, speed)
+}
+
+func (c *Controller) createGradientRandom(gradient GradientTable, trailLength uint32) Animation {
+	return NewGradientTrail(gradient, trailLength, 0.06, c.runtimeMs, c.getRandomSpeed(0.2, 0.8))
 }
 
 func (c *Controller) createMultiTwinkle(backColours []colorful.Color) Animation {
-
 	return NewMultiTwinkle(rand.Int31n(50)+20, backColours, c.runtimeMs)
+}
+
+func (c *Controller) createRandomMultiTwinkle(numColours int) (Animation, string) {
+	if numColours < 1 {
+		numColours = rand.Intn(8) + 2
+	}
+
+	twinkleChance := rand.Int31n(50) + 20
+	extraInfo := fmt.Sprintf("chance: 1:%d colours: ", twinkleChance)
+	backColours := make([]colorful.Color, numColours)
+	for i := 0; i < numColours; i++ {
+		backColours[i] = colorful.Hsl(rand.Float64()*360.0, 1.0, 0.02)
+		extraInfo += fmt.Sprintf("%s ", backColours[i].Hex())
+	}
+
+	return NewMultiTwinkle(twinkleChance, backColours, c.runtimeMs), extraInfo
+}
+
+func (c *Controller) SprintColour(colour colorful.Color) string {
+	return fmt.Sprintf("colorful.Color{R: %0.2f, G: %0.2f, B: %0.2f}", colour.R, colour.G, colour.B)
 }
 
 func (c *Controller) getAnimation() (Animation, string) {
 	twinkleHighlight, _ := colorful.Hex("#808080")
 	gold, _ := colorful.Hex("#050401")
 	pink, _ := colorful.Hex("#100505")
+	hotPink := colorful.Color{R: 0.45, G: -0.54, B: 0.02}
+	orange := colorful.Color{R: 0.23, G: 0.04, B: -0.87}
 	purple, _ := colorful.Hex("#050005")
 	silver, _ := colorful.Hex("#030303")
 	blue, _ := colorful.Hex("#000005")
 	green, _ := colorful.Hex("#000500")
-	red, _ := colorful.Hex("#050000")
-	white, _ := colorful.Hex("#202020")
+	red := colorful.Color{R: 0.8, G: 0.0, B: 0.00}
+	white := colorful.Color{R: 0.08, G: 0.08, B: 0.08}
 
 	extraInfo := ""
 	var animation Animation
@@ -196,14 +253,12 @@ func (c *Controller) getAnimation() (Animation, string) {
 		animation = c.createKnownTwinkle(twinkleHighlight, silver)
 	case "twinkle:gold":
 		animation = c.createKnownTwinkle(twinkleHighlight, gold)
-	case "rainbow:normal":
-		animation = c.createKnownRainbow()
-	case "rainbow:random":
-		animation = c.createRandomRainbow()
-	case "rainbow:fixed":
-		animation = c.createFixedRainbow()
-	case "candycane:random":
-		animation = c.createCandyCane()
+	case "multi:random":
+		animation, extraInfo = c.createRandomMultiTwinkle(0)
+	case "multi:random2":
+		animation, extraInfo = c.createRandomMultiTwinkle(2)
+	case "multi:random3":
+		animation, extraInfo = c.createRandomMultiTwinkle(3)
 	case "multi:purplegoldblue":
 		animation = c.createMultiTwinkle([]colorful.Color{purple, gold, blue})
 	case "multi:pinksilverblue":
@@ -212,6 +267,23 @@ func (c *Controller) getAnimation() (Animation, string) {
 		animation = c.createMultiTwinkle([]colorful.Color{red, green, gold})
 	case "multi:redwhiteblue":
 		animation = c.createMultiTwinkle([]colorful.Color{red, white, blue})
+	case "rainbow:normal":
+		animation = c.createKnownRainbow()
+	case "rainbow:random":
+		animation = c.createRandomRainbow()
+	case "rainbow:fixed":
+		animation = c.createFixedRainbow()
+	case "gradient:rainbowstep":
+		animation = c.createGradientRandom(c.rainbowStepGradient, 1000)
+	case "gradient:pinkorangewhite":
+		gradient := c.createStripes([]colorful.Color{hotPink, orange, white})
+		animation = c.createGradient(gradient, 310, -0.3)
+	case "gradient:purplegoldblue":
+		gradient := c.createStripes([]colorful.Color{purple, gold, blue})
+		animation = c.createGradient(gradient, 310, -0.3)
+	case "candycane:random":
+		gradient := c.createStripes([]colorful.Color{red, white})
+		animation = c.createGradientRandom(gradient, 320)
 	}
 
 	return animation, extraInfo
