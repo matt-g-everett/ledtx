@@ -74,6 +74,7 @@ func NewController(runtimeMs int64, frameRate float64, animationTime time.Durati
 	c.transitionIncrement = 1.0 / (c.frameRate * c.transitionTimeSecs)
 
 	c.animationPlaylist = []string{
+		"multi:monokai",
 		"stripes:random",
 		"gradient:purplegoldblue",
 		"multi:purplegoldblue",
@@ -82,9 +83,11 @@ func NewController(runtimeMs int64, frameRate float64, animationTime time.Durati
 		"gradient:pinkorangewhite",
 		"multi:random3",
 		"stripes:random",
+		"multi:pinkblueturquoise",
 		"gradient:rainbowstep",
 		"multi:purplegoldblue",
 		"rainbow:fixed",
+		"multi:monokai",
 		"stripes:candycane",
 		"twinkle:random",
 		"multi:redgreengold",
@@ -101,6 +104,7 @@ func NewController(runtimeMs int64, frameRate float64, animationTime time.Durati
 		"twinkle:pink",
 		"stripes:random",
 		"multi:redgreengold",
+		"multi:monokai",
 		"rainbow:normal",
 		"multi:random",
 		"multi:redwhiteblue",
@@ -203,7 +207,7 @@ func (c *Controller) createKnownRainbow() Animation {
 
 func (c *Controller) createRandomRainbow() Animation {
 	trailLength := rand.Int31n(970) + 30
-	return NewGradientTrail(c.rainbowGradient, uint32(trailLength), 0.06, c.runtimeMs, c.getRandomSpeed(0, 0.7))
+	return NewGradientTrail(c.rainbowGradient, uint32(trailLength), 0.06, c.runtimeMs, c.getRandomSpeed(0, 0.5))
 }
 
 func (c *Controller) createGradient(gradient GradientTable, trailLength uint32, speed float64) Animation {
@@ -211,7 +215,7 @@ func (c *Controller) createGradient(gradient GradientTable, trailLength uint32, 
 }
 
 func (c *Controller) createGradientRandom(gradient GradientTable, trailLength uint32) Animation {
-	return NewGradientTrail(gradient, trailLength, 0.06, c.runtimeMs, c.getRandomSpeed(0.2, 0.8))
+	return NewGradientTrail(gradient, trailLength, 0.06, c.runtimeMs, c.getRandomSpeed(0.2, 0.5))
 }
 
 func (c *Controller) createMultiTwinkle(backColours []colorful.Color) Animation {
@@ -290,8 +294,8 @@ func (c *Controller) getAnimation() (Animation, string) {
 	silver, _ := colorful.Hex("#030303")
 	blue, _ := colorful.Hex("#000005")
 	green, _ := colorful.Hex("#000500")
-	red := colorful.Color{R: 0.8, G: 0.0, B: 0.00}
-	white := colorful.Color{R: 0.08, G: 0.08, B: 0.08}
+	red, _ := colorful.Hex("#050000")
+	white, _ := colorful.Hex("#202020")
 
 	extraInfo := ""
 	var animation Animation
@@ -339,6 +343,20 @@ func (c *Controller) getAnimation() (Animation, string) {
 		animation = c.createGradientRandom(gradient, 320)
 	case "stripes:random":
 		animation, extraInfo = c.createRandomStripes(0)
+	case "multi:pinkblue":
+		animation = c.createMultiTwinkle([]colorful.Color{
+			{R: 0.040, G: 0.000, B: 0.011},
+			{R: 0.000, G: 0.024, B: 0.040},
+			{R: 0.005, G: 0.000, B: 0.040}})
+	case "multi:monokai":
+		animation = c.createMultiTwinkle([]colorful.Color{
+			{R: 0.020, G: 0.040, B: 0.000},
+			{R: 0.012, G: 0.000, B: 0.040},
+			{R: 0.000, G: 0.040, B: 0.019},
+			{R: 0.040, G: 0.000, B: 0.005},
+			{R: 0.033, G: 0.040, B: 0.000},
+			{R: 0.040, G: 0.000, B: 0.010},
+			{R: 0.012, G: 0.040, B: 0.000}})
 	}
 
 	if len(extraInfo) > 0 {
