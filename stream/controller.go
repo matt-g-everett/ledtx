@@ -74,43 +74,53 @@ func NewController(runtimeMs int64, frameRate float64, animationTime time.Durati
 	c.transitionIncrement = 1.0 / (c.frameRate * c.transitionTimeSecs)
 
 	c.animationPlaylist = []string{
+		"stripes:random",
 		"gradient:purplegoldblue",
 		"multi:purplegoldblue",
 		"multi:random",
-		"candycane:random",
+		"stripes:candycane",
 		"gradient:pinkorangewhite",
 		"multi:random3",
+		"stripes:random",
 		"gradient:rainbowstep",
 		"multi:purplegoldblue",
 		"rainbow:fixed",
-		"candycane:random",
+		"stripes:candycane",
 		"twinkle:random",
 		"multi:redgreengold",
 		"twinkle:blue",
+		"stripes:random",
+		"multi:random",
 		"multi:pinksilverblue",
 		"rainbow:random",
 		"multi:purplegoldblue",
 		"twinkle:random",
 		"multi:random3",
-		"candycane:random",
+		"stripes:candycane",
 		"multi:random2",
 		"twinkle:pink",
+		"stripes:random",
 		"multi:redgreengold",
 		"rainbow:normal",
+		"multi:random",
 		"multi:redwhiteblue",
 		"gradient:pinkorangewhite",
 		"twinkle:random",
-		"candycane:random",
+		"stripes:candycane",
 		"multi:redgreengold",
 		"twinkle:gold",
+		"stripes:random",
 		"multi:random2",
 		"rainbow:random",
 		"multi:purplegoldblue",
+		"stripes:random",
 		"twinkle:random",
 		"multi:random3",
-		"candycane:random",
+		"stripes:candycane",
+		"multi:random",
 		"multi:pinksilverblue",
 		"twinkle:silver",
+		"stripes:random",
 		"multi:redwhiteblue",
 		"rainbow:random",
 		"multi:random3",
@@ -208,6 +218,29 @@ func (c *Controller) createMultiTwinkle(backColours []colorful.Color) Animation 
 	return NewMultiTwinkle(rand.Int31n(50)+20, backColours, c.runtimeMs)
 }
 
+func (c *Controller) createRandomStripes(numColours int) (Animation, string) {
+	if numColours < 1 {
+		numColours = rand.Intn(2) + 2
+	}
+
+	// 30% chance that one of the colours is white
+	whiteIndex := rand.Intn(numColours * 3)
+	trailLength := rand.Int31n(200) + 200
+	stripeColours := make([]colorful.Color, numColours)
+	for i := 0; i < numColours; i++ {
+		if i == whiteIndex {
+			stripeColours[i] = colorful.Hsl(0.0, 0.0, 0.4)
+		} else {
+			stripeColours[i] = colorful.Hsl(rand.Float64()*360.0, 1.0, 0.5)
+		}
+	}
+	extraInfo := "colours: "
+	extraInfo += c.SprintColours(stripeColours)
+
+	stripeTable := c.createStripes(stripeColours)
+	return NewGradientTrail(stripeTable, uint32(trailLength), 0.2, c.runtimeMs, c.getRandomSpeed(0.2, 0.3)), extraInfo
+}
+
 func (c *Controller) createRandomMultiTwinkle(numColours int) (Animation, string) {
 	if numColours < 1 {
 		numColours = rand.Intn(8) + 2
@@ -218,14 +251,27 @@ func (c *Controller) createRandomMultiTwinkle(numColours int) (Animation, string
 	backColours := make([]colorful.Color, numColours)
 	for i := 0; i < numColours; i++ {
 		backColours[i] = colorful.Hsl(rand.Float64()*360.0, 1.0, 0.02)
-		extraInfo += fmt.Sprintf("%s ", backColours[i].Hex())
 	}
+	extraInfo += c.SprintColours(backColours)
 
 	return NewMultiTwinkle(twinkleChance, backColours, c.runtimeMs), extraInfo
 }
 
 func (c *Controller) SprintColour(colour colorful.Color) string {
-	return fmt.Sprintf("colorful.Color{R: %0.2f, G: %0.2f, B: %0.2f}", colour.R, colour.G, colour.B)
+	return fmt.Sprintf("{R: %0.3f, G: %0.3f, B: %0.3f}", colour.R, colour.G, colour.B)
+}
+
+func (c *Controller) SprintColours(colours []colorful.Color) string {
+	colourCode := "[]colorful.Color{"
+	for i := 0; i < len(colours); i++ {
+		colourCode += c.SprintColour(colours[i])
+		if i < len(colours)-1 {
+			colourCode += ", "
+		}
+	}
+	colourCode += "}"
+
+	return colourCode
 }
 
 func (c *Controller) getAnimation() (Animation, string) {
@@ -288,9 +334,17 @@ func (c *Controller) getAnimation() (Animation, string) {
 	case "gradient:purplegoldblue":
 		gradient := c.createStripes([]colorful.Color{brightPurple, brightGold, brightBlue})
 		animation = c.createGradient(gradient, 310, -0.3)
-	case "candycane:random":
+	case "stripes:candycane":
 		gradient := c.createStripes([]colorful.Color{brightRed, brightWhite})
 		animation = c.createGradientRandom(gradient, 320)
+	case "stripes:random":
+		animation, extraInfo = c.createRandomStripes(0)
+	}
+
+	if len(extraInfo) > 0 {
+		log.Printf("Cycling to %s; %s", c.animationPlaylist[c.animationIndex], extraInfo)
+	} else {
+		log.Printf("Cycling to %s", c.animationPlaylist[c.animationIndex])
 	}
 
 	return animation, extraInfo
@@ -300,14 +354,7 @@ func (c *Controller) cycleAnimation() {
 	if c.cycling {
 		c.animationIndex++
 		c.animationIndex %= len(c.animationPlaylist)
-
-		var extraInfo string
-		c.nextAnimation, extraInfo = c.getAnimation()
-		if len(extraInfo) > 0 {
-			log.Printf("Cycling to %s; %s", c.animationPlaylist[c.animationIndex], extraInfo)
-		} else {
-			log.Printf("Cycling to %s", c.animationPlaylist[c.animationIndex])
-		}
+		c.nextAnimation, _ = c.getAnimation()
 	}
 }
 
