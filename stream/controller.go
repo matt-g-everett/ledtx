@@ -74,7 +74,8 @@ func NewController(runtimeMs int64, frameRate float64, animationTime time.Durati
 	c.transitionIncrement = 1.0 / (c.frameRate * c.transitionTimeSecs)
 
 	c.animationPlaylist = []string{
-		//"gradient:purplegoldblue",
+		"gradient:purplegoldblue",
+		"multi:purplegoldblue",
 		"multi:random",
 		"candycane:random",
 		"gradient:pinkorangewhite",
@@ -228,11 +229,17 @@ func (c *Controller) SprintColour(colour colorful.Color) string {
 }
 
 func (c *Controller) getAnimation() (Animation, string) {
+	brightPurple := colorful.Hcl(328.0, 1.0, 0.06)
+	brightPink := colorful.Color{R: 0.45, G: -0.54, B: 0.02}
+	brightOrange := colorful.Color{R: 0.23, G: 0.04, B: -0.87}
+	brightRed := colorful.Color{R: 0.8, G: 0.0, B: 0.00}
+	brightWhite := colorful.Color{R: 0.08, G: 0.08, B: 0.08}
+	brightBlue := colorful.Hcl(280.0, 1.0, 0.06)
+	brightGold := colorful.Hcl(95.0, 1.0, 0.06)
+
 	twinkleHighlight, _ := colorful.Hex("#808080")
 	gold, _ := colorful.Hex("#050401")
 	pink, _ := colorful.Hex("#100505")
-	hotPink := colorful.Color{R: 0.45, G: -0.54, B: 0.02}
-	orange := colorful.Color{R: 0.23, G: 0.04, B: -0.87}
 	purple, _ := colorful.Hex("#050005")
 	silver, _ := colorful.Hex("#030303")
 	blue, _ := colorful.Hex("#000005")
@@ -276,13 +283,13 @@ func (c *Controller) getAnimation() (Animation, string) {
 	case "gradient:rainbowstep":
 		animation = c.createGradientRandom(c.rainbowStepGradient, 1000)
 	case "gradient:pinkorangewhite":
-		gradient := c.createStripes([]colorful.Color{hotPink, orange, white})
+		gradient := c.createStripes([]colorful.Color{brightPink, brightOrange, brightWhite})
 		animation = c.createGradient(gradient, 310, -0.3)
 	case "gradient:purplegoldblue":
-		gradient := c.createStripes([]colorful.Color{purple, gold, blue})
+		gradient := c.createStripes([]colorful.Color{brightPurple, brightGold, brightBlue})
 		animation = c.createGradient(gradient, 310, -0.3)
 	case "candycane:random":
-		gradient := c.createStripes([]colorful.Color{red, white})
+		gradient := c.createStripes([]colorful.Color{brightRed, brightWhite})
 		animation = c.createGradientRandom(gradient, 320)
 	}
 
