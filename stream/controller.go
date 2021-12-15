@@ -74,10 +74,12 @@ func NewController(runtimeMs int64, frameRate float64, animationTime time.Durati
 	c.transitionIncrement = 1.0 / (c.frameRate * c.transitionTimeSecs)
 
 	c.animationPlaylist = []string{
+		"istripe:random",
 		"multi:monokai",
 		"stripes:random",
 		"gradient:purplegoldblue",
 		"multi:purplegoldblue",
+		"istripe:random",
 		"multi:random",
 		"stripes:candycane",
 		"gradient:pinkorangewhite",
@@ -90,6 +92,7 @@ func NewController(runtimeMs int64, frameRate float64, animationTime time.Durati
 		"multi:monokai",
 		"stripes:candycane",
 		"twinkle:random",
+		"istripe:random",
 		"multi:redgreengold",
 		"twinkle:blue",
 		"stripes:random",
@@ -98,6 +101,7 @@ func NewController(runtimeMs int64, frameRate float64, animationTime time.Durati
 		"rainbow:random",
 		"multi:purplegoldblue",
 		"twinkle:random",
+		"istripe:random",
 		"multi:random3",
 		"stripes:candycane",
 		"multi:random2",
@@ -107,6 +111,7 @@ func NewController(runtimeMs int64, frameRate float64, animationTime time.Durati
 		"multi:monokai",
 		"rainbow:normal",
 		"multi:random",
+		"istripe:random",
 		"multi:redwhiteblue",
 		"gradient:pinkorangewhite",
 		"twinkle:random",
@@ -119,6 +124,7 @@ func NewController(runtimeMs int64, frameRate float64, animationTime time.Durati
 		"multi:purplegoldblue",
 		"stripes:random",
 		"twinkle:random",
+		"istripe:random",
 		"multi:random3",
 		"stripes:candycane",
 		"multi:random",
@@ -261,6 +267,10 @@ func (c *Controller) createRandomMultiTwinkle(numColours int) (Animation, string
 	return NewMultiTwinkle(twinkleChance, backColours, c.runtimeMs), extraInfo
 }
 
+func (c *Controller) createRandomInfinityStripe() Animation {
+	return NewInfinityStripe(c.runtimeMs, 0.5)
+}
+
 func (c *Controller) SprintColour(colour colorful.Color) string {
 	return fmt.Sprintf("{R: %0.3f, G: %0.3f, B: %0.3f}", colour.R, colour.G, colour.B)
 }
@@ -357,6 +367,8 @@ func (c *Controller) getAnimation() (Animation, string) {
 			{R: 0.033, G: 0.040, B: 0.000},
 			{R: 0.040, G: 0.000, B: 0.010},
 			{R: 0.012, G: 0.040, B: 0.000}})
+	case "istripe:random":
+		animation = c.createRandomInfinityStripe()
 	}
 
 	if len(extraInfo) > 0 {
