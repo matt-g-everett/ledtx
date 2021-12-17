@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/lucasb-eyer/go-colorful"
+	"github.com/matt-g-everett/ledtx/stream/stripe"
 )
 
 // Controller that manages animations.
@@ -74,6 +75,7 @@ func NewController(runtimeMs int64, frameRate float64, animationTime time.Durati
 	c.transitionIncrement = 1.0 / (c.frameRate * c.transitionTimeSecs)
 
 	c.animationPlaylist = []string{
+		"istripe:70s",
 		"istripe:random",
 		"multi:monokai",
 		"stripes:random",
@@ -268,7 +270,11 @@ func (c *Controller) createRandomMultiTwinkle(numColours int) (Animation, string
 }
 
 func (c *Controller) createRandomInfinityStripe() Animation {
-	return NewInfinityStripe(c.runtimeMs, 0.5)
+	return NewInfinityStripe(c.runtimeMs, 0.5, stripe.NewRandomStripeGenerator(nil))
+}
+
+func (c *Controller) createPaletteInfinityStripe(palette []colorful.Color) Animation {
+	return NewInfinityStripe(c.runtimeMs, 0.6, stripe.NewRandomStripeGenerator(palette))
 }
 
 func (c *Controller) SprintColour(colour colorful.Color) string {
@@ -306,6 +312,17 @@ func (c *Controller) getAnimation() (Animation, string) {
 	green, _ := colorful.Hex("#000500")
 	red, _ := colorful.Hex("#050000")
 	white, _ := colorful.Hex("#202020")
+
+	lightOrange := colorful.Hcl(88.0, 0.2, 0.04)
+	deepOrange := colorful.Hcl(89.0, 0.8, 0.04)
+	cream := colorful.Hcl(88.0, 0.04, 0.04)
+	turquoise := colorful.Hcl(185.0, 0.04, 0.02)
+	seventies := []colorful.Color{
+		lightOrange,
+		deepOrange,
+		cream,
+		turquoise,
+	}
 
 	extraInfo := ""
 	var animation Animation
@@ -369,6 +386,8 @@ func (c *Controller) getAnimation() (Animation, string) {
 			{R: 0.012, G: 0.040, B: 0.000}})
 	case "istripe:random":
 		animation = c.createRandomInfinityStripe()
+	case "istripe:70s":
+		animation = c.createPaletteInfinityStripe(seventies)
 	}
 
 	if len(extraInfo) > 0 {
