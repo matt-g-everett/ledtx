@@ -77,6 +77,8 @@ func (s *InfinityStripe) CalculateFrame(runtimeMs int64) *Frame {
 	// 	s.stripes = s.stripes[toRemove:]
 	// }
 
+	//maxOffset := 1.0 + 3.0*(float64(numPixels-1)/float64(numPixels))
+
 	adjustmentFactor := 1.0
 	currentStripe, stripeEnd := s.getStripe(s.current)
 	for i := 0; i < numPixels; i++ {
