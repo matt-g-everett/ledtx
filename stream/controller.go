@@ -257,7 +257,7 @@ func (c *Controller) createRandomStripes(numColours int) (Animation, string) {
 	extraInfo += c.SprintColours(stripeColours)
 
 	stripeTable := c.createStripes(stripeColours)
-	return NewGradientTrail(stripeTable, uint32(trailLength), 0.2, c.runtimeMs, c.getRandomSpeed(0.2, 0.3)), extraInfo
+	return NewGradientTrail(stripeTable, uint32(trailLength), 0.2, c.runtimeMs, c.getRandomSpeed(0.3, 0.4)), extraInfo
 }
 
 func (c *Controller) createRandomMultiTwinkle(numColours int) (Animation, string) {
@@ -265,7 +265,7 @@ func (c *Controller) createRandomMultiTwinkle(numColours int) (Animation, string
 		numColours = rand.Intn(8) + 2
 	}
 
-	twinkleChance := rand.Int31n(50) + 20
+	twinkleChance := rand.Int31n(30) + 20
 	extraInfo := fmt.Sprintf("chance: 1:%d colours: ", twinkleChance)
 	backColours := make([]colorful.Color, numColours)
 	for i := 0; i < numColours; i++ {
