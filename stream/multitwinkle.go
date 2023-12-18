@@ -73,10 +73,8 @@ type MultiTwinkle struct {
 
 // NewMultiTwinkle creates an instance of a Twinkle object.
 func NewMultiTwinkle(scintillationChance int32, backColours []colorful.Color, runtimeMs int64) *MultiTwinkle {
-
 	t := new(MultiTwinkle)
-	t.lut = make([]float64, 0, 13)
-	t.lut = append(t.lut, 0.05, 0.1, 0.2, 0.3, 0.6, 0.9, 1.0, 0.9, 0.6, 0.3, 0.2, 0.1, 0.05)
+	t.lut = []float64{0.05, 0.1, 0.2, 0.3, 0.6, 0.9, 1.0, 0.9, 0.6, 0.3, 0.2, 0.1, 0.05}
 	t.backColours = backColours
 	t.scintillationChance = scintillationChance
 	t.pixels = nil

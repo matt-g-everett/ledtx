@@ -8,7 +8,20 @@ import (
 
 	"github.com/lucasb-eyer/go-colorful"
 	"github.com/matt-g-everett/ledtx/stream/stripe"
+	"github.com/matt-g-everett/ledtx/util"
 )
+
+const (
+	SaturationMinChill = 0.2
+	SaturationMaxChill = 0.6
+	SaturationMinFun   = 0.5
+	SaturationMaxFun   = 1.0
+	SaturationMinWide  = 0.0
+	SaturationMaxWide  = 1.0
+)
+
+var SaturationMin = SaturationMinChill
+var SaturationMax = SaturationMaxChill
 
 // Controller that manages animations.
 type Controller struct {
@@ -203,8 +216,8 @@ func (c *Controller) createKnownTwinkle(foreColour colorful.Color, backColour co
 	return NewTwinkle(rand.Int31n(150)+10, foreColour, backColour, c.runtimeMs)
 }
 
-func (c *Controller) createRandomTwinkle(foreColour colorful.Color) (Animation, string) {
-	randomColor := colorful.Hsl(rand.Float64()*360.0, 1.0, 0.02)
+func (c *Controller) createRandomTwinkle(foreColour colorful.Color, saturationMin float64, saturationMax float64) (Animation, string) {
+	randomColor := colorful.Hsl(rand.Float64()*360.0, util.RandomiseSaturation(saturationMin, saturationMax), 0.02)
 	animation := NewTwinkle(
 		rand.Int31n(100)+10,
 		foreColour, randomColor, c.runtimeMs)
@@ -237,7 +250,7 @@ func (c *Controller) createMultiTwinkle(backColours []colorful.Color) Animation 
 	return NewMultiTwinkle(rand.Int31n(50)+20, backColours, c.runtimeMs)
 }
 
-func (c *Controller) createRandomStripes(numColours int) (Animation, string) {
+func (c *Controller) createRandomStripes(numColours int, saturationMin float64, saturationMax float64) (Animation, string) {
 	if numColours < 1 {
 		numColours = rand.Intn(2) + 2
 	}
@@ -250,7 +263,7 @@ func (c *Controller) createRandomStripes(numColours int) (Animation, string) {
 		if i == whiteIndex {
 			stripeColours[i] = colorful.Hsl(0.0, 0.0, 0.4)
 		} else {
-			stripeColours[i] = colorful.Hsl(rand.Float64()*360.0, 1.0, 0.5)
+			stripeColours[i] = colorful.Hsl(rand.Float64()*360.0, util.RandomiseSaturation(saturationMin, saturationMax), 0.5)
 		}
 	}
 	extraInfo := "colours: "
@@ -260,7 +273,7 @@ func (c *Controller) createRandomStripes(numColours int) (Animation, string) {
 	return NewGradientTrail(stripeTable, uint32(trailLength), 0.2, c.runtimeMs, c.getRandomSpeed(0.3, 0.4)), extraInfo
 }
 
-func (c *Controller) createRandomMultiTwinkle(numColours int) (Animation, string) {
+func (c *Controller) createRandomMultiTwinkle(numColours int, saturationMin float64, saturationMax float64) (Animation, string) {
 	if numColours < 1 {
 		numColours = rand.Intn(8) + 2
 	}
@@ -269,7 +282,7 @@ func (c *Controller) createRandomMultiTwinkle(numColours int) (Animation, string
 	extraInfo := fmt.Sprintf("chance: 1:%d colours: ", twinkleChance)
 	backColours := make([]colorful.Color, numColours)
 	for i := 0; i < numColours; i++ {
-		backColours[i] = colorful.Hsl(rand.Float64()*360.0, 1.0, 0.02)
+		backColours[i] = colorful.Hsl(rand.Float64()*360.0, util.RandomiseSaturation(saturationMin, saturationMax), 0.02)
 	}
 	extraInfo += c.SprintColours(backColours)
 
@@ -277,11 +290,15 @@ func (c *Controller) createRandomMultiTwinkle(numColours int) (Animation, string
 }
 
 func (c *Controller) createRandomInfinityStripe() Animation {
-	return NewInfinityStripe(c.runtimeMs, 0.5, stripe.NewRandomStripeGenerator(nil))
+	return NewInfinityStripe(c.runtimeMs, 0.5, stripe.NewRandomStripeGeneratorVariableSaturation(SaturationMin, SaturationMax))
 }
 
 func (c *Controller) createPaletteInfinityStripe(palette []colorful.Color) Animation {
 	return NewInfinityStripe(c.runtimeMs, 0.6, stripe.NewRandomStripeGenerator(palette))
+}
+
+func (c *Controller) createStreak(backColour colorful.Color) Animation {
+	return NewStreak(c.runtimeMs, 100, backColour)
 }
 
 func (c *Controller) SprintColour(colour colorful.Color) string {
@@ -334,22 +351,24 @@ func (c *Controller) getAnimation() (Animation, string) {
 	extraInfo := ""
 	var animation Animation
 	switch c.animationPlaylist[c.animationIndex] {
+	case "streak:random":
+		animation = c.createStreak(blue)
 	case "twinkle:blue":
 		animation = c.createKnownTwinkle(twinkleHighlight, blue)
 	case "twinkle:pink":
 		animation = c.createKnownTwinkle(twinkleHighlight, pink)
 	case "twinkle:random":
-		animation, extraInfo = c.createRandomTwinkle(twinkleHighlight)
+		animation, extraInfo = c.createRandomTwinkle(twinkleHighlight, SaturationMin, SaturationMax)
 	case "twinkle:silver":
 		animation = c.createKnownTwinkle(twinkleHighlight, silver)
 	case "twinkle:gold":
 		animation = c.createKnownTwinkle(twinkleHighlight, gold)
 	case "multi:random":
-		animation, extraInfo = c.createRandomMultiTwinkle(0)
+		animation, extraInfo = c.createRandomMultiTwinkle(0, SaturationMin, SaturationMax)
 	case "multi:random2":
-		animation, extraInfo = c.createRandomMultiTwinkle(2)
+		animation, extraInfo = c.createRandomMultiTwinkle(2, SaturationMin, SaturationMax)
 	case "multi:random3":
-		animation, extraInfo = c.createRandomMultiTwinkle(3)
+		animation, extraInfo = c.createRandomMultiTwinkle(3, SaturationMin, SaturationMax)
 	case "multi:purplegoldblue":
 		animation = c.createMultiTwinkle([]colorful.Color{purple, gold, blue})
 	case "multi:pinksilverblue":
@@ -376,7 +395,7 @@ func (c *Controller) getAnimation() (Animation, string) {
 		gradient := c.createStripes([]colorful.Color{brightRed, brightWhite})
 		animation = c.createGradientRandom(gradient, 320)
 	case "stripes:random":
-		animation, extraInfo = c.createRandomStripes(0)
+		animation, extraInfo = c.createRandomStripes(0, SaturationMin, SaturationMax)
 	case "multi:pinkblue":
 		animation = c.createMultiTwinkle([]colorful.Color{
 			{R: 0.040, G: 0.000, B: 0.011},

@@ -1,8 +1,13 @@
 {
+    "editor.rulers": [ 120 ],
     "go.delveConfig": {
         "apiVersion": 2,
         "debugAdapter": "dlv-dap",
         "showGlobalVariables": true,
         "substitutePath": []
+    },
+    "files.exclude": {
+        "**/.git": true,
+        "__debug_bin*": true
     }
 }
