@@ -213,16 +213,13 @@ func (c *Controller) createStripes(stripeColours []colorful.Color) GradientTable
 }
 
 func (c *Controller) createKnownTwinkle(foreColour colorful.Color, backColour colorful.Color) Animation {
-	return NewTwinkle(rand.Int31n(150)+10, foreColour, backColour, c.runtimeMs)
+	return NewMultiTwinkle(rand.Int31n(40)+20, []colorful.Color{backColour}, nil, c.runtimeMs)
 }
 
 func (c *Controller) createRandomTwinkle(foreColour colorful.Color, saturationMin float64, saturationMax float64) (Animation, string) {
-	randomColor := colorful.Hsl(rand.Float64()*360.0, util.RandomiseSaturation(saturationMin, saturationMax), 0.02)
-	animation := NewTwinkle(
-		rand.Int31n(100)+10,
-		foreColour, randomColor, c.runtimeMs)
-
-	return animation, randomColor.Hex()
+	randomBackColour := colorful.Hsl(rand.Float64()*360.0, util.RandomiseSaturation(saturationMin, saturationMax), 0.02)
+	animation := NewMultiTwinkle(rand.Int31n(50)+20, []colorful.Color{randomBackColour}, nil, c.runtimeMs)
+	return animation, randomBackColour.Hex()
 }
 
 func (c *Controller) createFixedRainbow() Animation {
@@ -234,8 +231,18 @@ func (c *Controller) createKnownRainbow() Animation {
 }
 
 func (c *Controller) createRandomRainbow() Animation {
-	trailLength := rand.Int31n(970) + 30
-	return NewGradientTrail(c.rainbowGradient, uint32(trailLength), 0.06, c.runtimeMs, c.getRandomSpeed(0, 0.5))
+	trailLength := rand.Int31n(900) + 100
+	speedMin := float64(trailLength) * 0.0004
+	speedMax := float64(trailLength) * 0.0006
+
+	saturation := util.RandomiseSaturation(0.2, 0.8)
+	adjustedGradient := make(GradientTable, len(c.rainbowGradient))
+	copy(adjustedGradient, c.rainbowGradient)
+	for i := 0; i < len(adjustedGradient); i++ {
+		adjustedGradient[i].Saturation = saturation
+	}
+
+	return NewGradientTrail(adjustedGradient, uint32(trailLength), 0.06, c.runtimeMs, c.getRandomSpeed(speedMin, speedMax))
 }
 
 func (c *Controller) createGradient(gradient GradientTable, trailLength uint32, speed float64) Animation {
@@ -247,7 +254,7 @@ func (c *Controller) createGradientRandom(gradient GradientTable, trailLength ui
 }
 
 func (c *Controller) createMultiTwinkle(backColours []colorful.Color) Animation {
-	return NewMultiTwinkle(rand.Int31n(50)+20, backColours, c.runtimeMs)
+	return NewMultiTwinkle(rand.Int31n(50)+20, backColours, util.GenerateLut(14), c.runtimeMs)
 }
 
 func (c *Controller) createRandomStripes(numColours int, saturationMin float64, saturationMax float64) (Animation, string) {
@@ -286,7 +293,7 @@ func (c *Controller) createRandomMultiTwinkle(numColours int, saturationMin floa
 	}
 	extraInfo += c.SprintColours(backColours)
 
-	return NewMultiTwinkle(twinkleChance, backColours, c.runtimeMs), extraInfo
+	return NewMultiTwinkle(twinkleChance, backColours, nil, c.runtimeMs), extraInfo
 }
 
 func (c *Controller) createRandomInfinityStripe() Animation {

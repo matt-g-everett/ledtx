@@ -4,6 +4,7 @@ import (
 	"math/rand"
 
 	"github.com/lucasb-eyer/go-colorful"
+	"github.com/matt-g-everett/ledtx/util"
 )
 
 type multiParticle struct {
@@ -72,9 +73,10 @@ type MultiTwinkle struct {
 }
 
 // NewMultiTwinkle creates an instance of a Twinkle object.
-func NewMultiTwinkle(scintillationChance int32, backColours []colorful.Color, runtimeMs int64) *MultiTwinkle {
+func NewMultiTwinkle(scintillationChance int32, backColours []colorful.Color, lut []float64, runtimeMs int64) *MultiTwinkle {
 	t := new(MultiTwinkle)
-	t.lut = []float64{0.05, 0.1, 0.2, 0.3, 0.6, 0.9, 1.0, 0.9, 0.6, 0.3, 0.2, 0.1, 0.05}
+
+	t.lut = lut
 	t.backColours = backColours
 	t.scintillationChance = scintillationChance
 	t.pixels = nil
@@ -97,7 +99,13 @@ func (t *MultiTwinkle) CalculateFrame(runtimeMs int64) *Frame {
 	if t.pixels == nil {
 		t.pixels = make([]*multiParticle, numPixels)
 		for i := 0; i < numPixels; i++ {
-			t.pixels[i] = newMultiParticle(t.getRandomBackColour(), t.lut)
+			var lut []float64
+			if t.lut != nil {
+				lut = t.lut
+			} else {
+				lut = util.GenerateLut((rand.Intn(18) + 6) * 2)
+			}
+			t.pixels[i] = newMultiParticle(t.getRandomBackColour(), lut)
 		}
 	}
 
