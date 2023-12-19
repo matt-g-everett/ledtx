@@ -88,6 +88,7 @@ func NewController(runtimeMs int64, frameRate float64, animationTime time.Durati
 	c.transitionIncrement = 1.0 / (c.frameRate * c.transitionTimeSecs)
 
 	c.animationPlaylist = []string{
+		"multi:monokai",
 		//"streak:random",
 		"istripe:70s",
 		"istripe:random",
@@ -255,7 +256,7 @@ func (c *Controller) createGradientRandom(gradient GradientTable, trailLength ui
 }
 
 func (c *Controller) createMultiTwinkle(backColours []colorful.Color) Animation {
-	return NewMultiTwinkle(rand.Int31n(50)+20, backColours, util.GenerateLut(14), c.runtimeMs)
+	return NewMultiTwinkle(rand.Int31n(50)+20, backColours, nil, c.runtimeMs)
 }
 
 func (c *Controller) createRandomStripes(numColours int, saturationMin float64, saturationMax float64) (Animation, string) {
