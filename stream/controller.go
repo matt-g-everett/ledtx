@@ -88,6 +88,7 @@ func NewController(runtimeMs int64, frameRate float64, animationTime time.Durati
 	c.transitionIncrement = 1.0 / (c.frameRate * c.transitionTimeSecs)
 
 	c.animationPlaylist = []string{
+		//"streak:random",
 		"istripe:70s",
 		"istripe:random",
 		"multi:monokai",
