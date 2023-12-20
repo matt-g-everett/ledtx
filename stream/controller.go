@@ -261,7 +261,7 @@ func (c *Controller) createMultiTwinkle(backColours []colorful.Color) Animation 
 
 func (c *Controller) createRandomStripes(numColours int, saturationMin float64, saturationMax float64) (Animation, string) {
 	if numColours < 1 {
-		numColours = rand.Intn(2) + 2
+		numColours = rand.Intn(4) + 2
 	}
 
 	// 30% chance that one of the colours is white
