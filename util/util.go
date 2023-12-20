@@ -10,6 +10,8 @@ func RandomiseSaturation(min float64, max float64) float64 {
 	return rand.Float64()*(max-min) + min
 }
 
+type Memoizer map[int][]float64
+
 func GenerateLut(length int) []float64 {
 	increment := 1.0 / float64(length/2)
 	lut := make([]float64, length)
@@ -18,5 +20,15 @@ func GenerateLut(length int) []float64 {
 		lut[i] = ease.InOutQuad(value)
 		lut[j] = ease.InOutQuad(value)
 	}
+	return lut
+}
+
+func GenerateLutMemoized(length int, memoizer Memoizer) []float64 {
+	lut, ok := memoizer[length]
+	if !ok {
+		lut = GenerateLut(length)
+		memoizer[length] = lut
+	}
+
 	return lut
 }

@@ -8,25 +8,35 @@ import (
 )
 
 type multiParticle struct {
+	staticLut  []float64
 	lut        []float64
-	lutLength  int
+	memoizer   util.Memoizer
 	current    int
 	running    bool
 	colour     colorful.Color
 	NextColour colorful.Color
 }
 
-func newMultiParticle(colour colorful.Color, lut []float64) *multiParticle {
+func newMultiParticle(colour colorful.Color, lut []float64, memoizer util.Memoizer) *multiParticle {
 	p := new(multiParticle)
 
 	p.colour = colour
 	p.NextColour = colour
+	p.staticLut = lut
 	p.lut = lut
-	p.lutLength = len(lut)
+	p.memoizer = memoizer
 	p.current = 0
 	p.running = false
 
+	p.updateLut()
+
 	return p
+}
+
+func (p *multiParticle) updateLut() {
+	if p.staticLut == nil {
+		p.lut = util.GenerateLutMemoized((rand.Intn(18)+6)*2, p.memoizer)
+	}
 }
 
 func (p *multiParticle) increment() {
@@ -39,6 +49,9 @@ func (p *multiParticle) increment() {
 		if p.current == len(p.lut)-1 {
 			p.current = 0
 			p.running = false
+
+			// Update the LUT every time we finish a scintillation
+			p.updateLut()
 		}
 	}
 }
@@ -70,6 +83,7 @@ type MultiTwinkle struct {
 	runtimeMs           int64
 	scintillationChance int32
 	pixels              []*multiParticle
+	memoizer            util.Memoizer
 }
 
 // NewMultiTwinkle creates an instance of a Twinkle object.
@@ -80,6 +94,7 @@ func NewMultiTwinkle(scintillationChance int32, backColours []colorful.Color, lu
 	t.backColours = backColours
 	t.scintillationChance = scintillationChance
 	t.pixels = nil
+	t.memoizer = util.Memoizer{}
 
 	return t
 }
@@ -99,13 +114,7 @@ func (t *MultiTwinkle) CalculateFrame(runtimeMs int64) *Frame {
 	if t.pixels == nil {
 		t.pixels = make([]*multiParticle, numPixels)
 		for i := 0; i < numPixels; i++ {
-			var lut []float64
-			if t.lut != nil {
-				lut = t.lut
-			} else {
-				lut = util.GenerateLut((rand.Intn(18) + 6) * 2)
-			}
-			t.pixels[i] = newMultiParticle(t.getRandomBackColour(), lut)
+			t.pixels[i] = newMultiParticle(t.getRandomBackColour(), t.lut, t.memoizer)
 		}
 	}
 
