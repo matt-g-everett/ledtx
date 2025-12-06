@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"log"
-	"math/rand"
 	"os"
 	"time"
 
@@ -56,8 +55,6 @@ func main() {
 	// Parse command line parameters
 	configPath := flag.String("config", "config.yaml", "YAML config file.")
 	flag.Parse()
-
-	rand.Seed(time.Now().UTC().UnixNano())
 
 	// Read the config
 	a := newApp()
