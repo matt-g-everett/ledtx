@@ -9,7 +9,6 @@ IMAGE="emqx/emqx:latest"
 DATA_VOLUME="emqx-data"
 LOG_VOLUME="emqx-log"
 ACL_FILE="${HOME}/emqx/acl.conf"
-AUTH_FILE="${HOME}/emqx/authentication.json"
 CONFIG_FILE="${HOME}/emqx/emqx.conf"
 MQTT_PORT=1883
 WEB_PORT=18083
@@ -52,36 +51,27 @@ cat > "${ACL_FILE}" << EOF
 EOF
 echo "✓ Written ${ACL_FILE}"
 
-# Create/overwrite authentication file
-echo "Writing authentication configuration..."
-cat > "${AUTH_FILE}" << EOF
-[
-  {
-    "user_id": "${ADMIN_USERNAME}",
-    "password": "${ADMIN_PASSWORD}",
-    "is_superuser": true
-  },
-  {
-    "user_id": "${HOMEAUTO_USERNAME}",
-    "password": "${HOMEAUTO_PASSWORD}",
-    "is_superuser": false
-  }
-]
-EOF
-echo "✓ Written ${AUTH_FILE}"
-echo "⚠️  WARNING: Edit this script to set secure passwords!"
+echo "⚠️  WARNING: Set secure passwords via environment variables!"
 
 # Create/overwrite EMQX config file
 echo "Writing EMQX configuration..."
 cat > "${CONFIG_FILE}" << EOF
 # EMQX Configuration Override
 
+# Required node settings
+node {
+  name = "emqx@127.0.0.1"
+  cookie = "emqxsecretcookie"
+  data_dir = "/opt/emqx/data"
+}
+
 # Dashboard configuration
 dashboard {
   listeners.http {
     bind = "0.0.0.0:18083"
   }
-  default_username = "${ADMIN_USERNAME}"
+  default_username = "admin"
+  default_password = "public"
 }
 
 # MQTT Authentication - Built-in Database
@@ -92,9 +82,8 @@ authentication = [
     user_id_type = username
     password_hash_algorithm {
       name = plain
+      salt_position = disable
     }
-    bootstrap_file = "/opt/emqx/data/authentication.json"
-    bootstrap_type = plain
   }
 ]
 
@@ -156,13 +145,67 @@ else
         --restart always \
         -p "${MQTT_PORT}:1883" \
         -p "${WEB_PORT}:18083" \
+        -e "EMQX_DASHBOARD__DEFAULT_PASSWORD=public" \
         -v "${DATA_VOLUME}:/opt/emqx/data" \
         -v "${LOG_VOLUME}:/opt/emqx/log" \
         -v "${ACL_FILE}:/opt/emqx/etc/acl.conf:ro" \
-        -v "${AUTH_FILE}:/opt/emqx/data/authentication.json:ro" \
         -v "${CONFIG_FILE}:/opt/emqx/etc/emqx.conf:ro" \
         "${IMAGE}"
     echo "✓ Container created and started"
+
+    # Wait for EMQX dashboard to be ready
+    echo "Waiting for EMQX dashboard to start..."
+    for i in {1..60}; do
+        # Check if dashboard status endpoint is available
+        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${WEB_PORT}/status" 2>/dev/null || echo "000")
+        if [ "${HTTP_CODE}" = "200" ]; then
+            echo "✓ EMQX dashboard is responding"
+            break
+        fi
+        echo "  Waiting... (attempt ${i}/60, HTTP ${HTTP_CODE})"
+        sleep 2
+    done
+
+    # Get bearer token from dashboard (default creds are admin/public)
+    echo "Getting API token..."
+    LOGIN_RESPONSE=$(curl -s -X POST "http://localhost:${WEB_PORT}/api/v5/login" \
+        -H "Content-Type: application/json" \
+        -d '{"username": "admin", "password": "public"}')
+    echo "Login response: ${LOGIN_RESPONSE}"
+    TOKEN=$(echo "${LOGIN_RESPONSE}" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
+
+    if [ -z "${TOKEN}" ]; then
+        echo "⚠ Failed to get API token"
+    else
+        echo "✓ Got API token"
+
+        # Create MQTT users via API
+        echo "Creating MQTT users..."
+
+        # Create admin user
+        echo "Creating admin user..."
+        curl -s -X POST "http://localhost:${WEB_PORT}/api/v5/authentication/password_based%3Abuilt_in_database/users" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"user_id\": \"${ADMIN_USERNAME}\", \"password\": \"${ADMIN_PASSWORD}\", \"is_superuser\": true}"
+        echo ""
+
+        # Create homeauto user
+        echo "Creating homeauto user..."
+        curl -s -X POST "http://localhost:${WEB_PORT}/api/v5/authentication/password_based%3Abuilt_in_database/users" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"user_id\": \"${HOMEAUTO_USERNAME}\", \"password\": \"${HOMEAUTO_PASSWORD}\", \"is_superuser\": false}"
+        echo ""
+
+        # Change dashboard admin password
+        echo "Updating dashboard admin password..."
+        curl -s -X PUT "http://localhost:${WEB_PORT}/api/v5/users/admin" \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"password\": \"${ADMIN_PASSWORD}\", \"description\": \"Admin user\"}"
+        echo ""
+    fi
 fi
 
 echo ""
@@ -173,7 +216,6 @@ echo "Web Dashboard: http://localhost:${WEB_PORT}"
 echo ""
 echo "Configuration files:"
 echo "  ACL:    ${ACL_FILE}"
-echo "  Users:  ${AUTH_FILE}"
 echo "  Config: ${CONFIG_FILE}"
 echo ""
 echo "Volumes:"
