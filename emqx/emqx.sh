@@ -11,6 +11,7 @@ LOG_VOLUME="emqx-log"
 ACL_FILE="${HOME}/emqx/acl.conf"
 CONFIG_FILE="${HOME}/emqx/emqx.conf"
 MQTT_PORT=1883
+WS_PORT=8083
 WEB_PORT=18083
 
 # User credentials
@@ -144,8 +145,8 @@ else
         --name "${CONTAINER_NAME}" \
         --restart always \
         -p "${MQTT_PORT}:1883" \
+        -p "${WS_PORT}:8083" \
         -p "${WEB_PORT}:18083" \
-        -e "EMQX_DASHBOARD__DEFAULT_PASSWORD=public" \
         -v "${DATA_VOLUME}:/opt/emqx/data" \
         -v "${LOG_VOLUME}:/opt/emqx/log" \
         -v "${ACL_FILE}:/opt/emqx/etc/acl.conf:ro" \
@@ -212,6 +213,7 @@ echo ""
 echo "EMQX MQTT Broker is ready!"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "MQTT Broker:   mqtt://localhost:${MQTT_PORT}"
+echo "WebSocket:     ws://localhost:${WS_PORT}/mqtt"
 echo "Web Dashboard: http://localhost:${WEB_PORT}"
 echo ""
 echo "Configuration files:"
