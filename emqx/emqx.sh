@@ -1,0 +1,191 @@
+#!/bin/bash
+set -euo pipefail
+
+# EMQX MQTT Broker Setup Script
+# Idempotent - safe to run multiple times
+
+CONTAINER_NAME="emqx"
+IMAGE="emqx/emqx:latest"
+DATA_VOLUME="emqx-data"
+LOG_VOLUME="emqx-log"
+ACL_FILE="${HOME}/emqx/acl.conf"
+AUTH_FILE="${HOME}/emqx/authentication.json"
+CONFIG_FILE="${HOME}/emqx/emqx.conf"
+MQTT_PORT=1883
+WEB_PORT=18083
+
+# User credentials
+ADMIN_USERNAME="admin"
+ADMIN_PASSWORD="${EMQX_ADMIN_PASSWORD:-change-me-admin}"
+HOMEAUTO_USERNAME="homeauto"
+HOMEAUTO_PASSWORD="${EMQX_HOMEAUTO_PASSWORD:-change-me-homeauto}"
+
+echo "Setting up EMQX MQTT Broker..."
+
+# Create/overwrite ACL file
+echo "Writing ACL configuration file..."
+mkdir -p "$(dirname "${ACL_FILE}")"
+cat > "${ACL_FILE}" << EOF
+%%--------------------------------------------------------------------
+%% EMQX ACL Configuration
+%%--------------------------------------------------------------------
+
+%% Admin user - full access
+{allow, {user, "${ADMIN_USERNAME}"}, subscribe, ["#"]}.
+{allow, {user, "${ADMIN_USERNAME}"}, publish, ["#"]}.
+
+%% homeauto user - restricted to home/* topics only
+{allow, {user, "${HOMEAUTO_USERNAME}"}, subscribe, ["home/#"]}.
+{allow, {user, "${HOMEAUTO_USERNAME}"}, publish, ["home/#"]}.
+
+%% Deny homeauto from system topics
+{deny, {user, "${HOMEAUTO_USERNAME}"}, subscribe, ["\$SYS/#"]}.
+{deny, {user, "${HOMEAUTO_USERNAME}"}, publish, ["\$SYS/#"]}.
+
+%% Deny all other access for homeauto
+{deny, {user, "${HOMEAUTO_USERNAME}"}, subscribe, ["#"]}.
+{deny, {user, "${HOMEAUTO_USERNAME}"}, publish, ["#"]}.
+
+%% Default deny all for unauthenticated
+{deny, all, subscribe, ["#"]}.
+{deny, all, publish, ["#"]}.
+EOF
+echo "✓ Written ${ACL_FILE}"
+
+# Create/overwrite authentication file
+echo "Writing authentication configuration..."
+cat > "${AUTH_FILE}" << EOF
+[
+  {
+    "user_id": "${ADMIN_USERNAME}",
+    "password": "${ADMIN_PASSWORD}",
+    "is_superuser": true
+  },
+  {
+    "user_id": "${HOMEAUTO_USERNAME}",
+    "password": "${HOMEAUTO_PASSWORD}",
+    "is_superuser": false
+  }
+]
+EOF
+echo "✓ Written ${AUTH_FILE}"
+echo "⚠️  WARNING: Edit this script to set secure passwords!"
+
+# Create/overwrite EMQX config file
+echo "Writing EMQX configuration..."
+cat > "${CONFIG_FILE}" << EOF
+# EMQX Configuration Override
+
+# Dashboard configuration
+dashboard {
+  listeners.http {
+    bind = "0.0.0.0:18083"
+  }
+  default_username = "${ADMIN_USERNAME}"
+}
+
+# MQTT Authentication - Built-in Database
+authentication = [
+  {
+    mechanism = password_based
+    backend = built_in_database
+    user_id_type = username
+    password_hash_algorithm {
+      name = plain
+    }
+    bootstrap_file = "/opt/emqx/data/authentication.json"
+    bootstrap_type = plain
+  }
+]
+
+# Authorization (ACL)
+authorization {
+  sources = [
+    {
+      type = file
+      path = "/opt/emqx/etc/acl.conf"
+    }
+  ]
+  no_match = deny
+  deny_action = ignore
+  cache {
+    enable = true
+  }
+}
+EOF
+echo "✓ Written ${CONFIG_FILE}"
+
+# Create named volumes if they don't exist
+if ! docker volume inspect "${DATA_VOLUME}" >/dev/null 2>&1; then
+    echo "Creating data volume..."
+    docker volume create "${DATA_VOLUME}"
+    echo "✓ Created ${DATA_VOLUME}"
+else
+    echo "✓ Volume ${DATA_VOLUME} already exists"
+fi
+
+if ! docker volume inspect "${LOG_VOLUME}" >/dev/null 2>&1; then
+    echo "Creating log volume..."
+    docker volume create "${LOG_VOLUME}"
+    echo "✓ Created ${LOG_VOLUME}"
+else
+    echo "✓ Volume ${LOG_VOLUME} already exists"
+fi
+
+# Pull latest image
+echo "Pulling latest EMQX image..."
+docker pull "${IMAGE}"
+
+# Check if container exists
+if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+    echo "Container '${CONTAINER_NAME}' already exists"
+
+    # Check if it's running
+    if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+        echo "Container is already running"
+        echo "✓ EMQX is up and running"
+    else
+        echo "Starting existing container..."
+        docker start "${CONTAINER_NAME}"
+        echo "✓ Container started"
+    fi
+else
+    echo "Creating new container..."
+    docker run -d \
+        --name "${CONTAINER_NAME}" \
+        --restart always \
+        -p "${MQTT_PORT}:1883" \
+        -p "${WEB_PORT}:18083" \
+        -v "${DATA_VOLUME}:/opt/emqx/data" \
+        -v "${LOG_VOLUME}:/opt/emqx/log" \
+        -v "${ACL_FILE}:/opt/emqx/etc/acl.conf:ro" \
+        -v "${AUTH_FILE}:/opt/emqx/data/authentication.json:ro" \
+        -v "${CONFIG_FILE}:/opt/emqx/etc/emqx.conf:ro" \
+        "${IMAGE}"
+    echo "✓ Container created and started"
+fi
+
+echo ""
+echo "EMQX MQTT Broker is ready!"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "MQTT Broker:   mqtt://localhost:${MQTT_PORT}"
+echo "Web Dashboard: http://localhost:${WEB_PORT}"
+echo ""
+echo "Configuration files:"
+echo "  ACL:    ${ACL_FILE}"
+echo "  Users:  ${AUTH_FILE}"
+echo "  Config: ${CONFIG_FILE}"
+echo ""
+echo "Volumes:"
+echo "  Data: ${DATA_VOLUME}"
+echo "  Logs: ${LOG_VOLUME}"
+echo ""
+echo "User credentials:"
+echo "  Admin:    ${ADMIN_USERNAME} / ${ADMIN_PASSWORD}"
+echo "  HomeAuto: ${HOMEAUTO_USERNAME} / ${HOMEAUTO_PASSWORD}"
+echo ""
+echo "⚠️  To change credentials:"
+echo "  1. Edit the credential variables at the top of this script"
+echo "  2. docker rm -f ${CONTAINER_NAME}"
+echo "  3. Re-run this script to apply changes"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
