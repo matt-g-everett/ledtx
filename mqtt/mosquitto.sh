@@ -39,7 +39,7 @@ else
     echo "Creating new container with authentication..."
     docker run -d \
         --name "${CONTAINER_NAME}" \
-        --restart always \
+        --restart unless-stopped \
         -p "${MQTT_PORT}:1883" \
         "${IMAGE}" \
         sh -c "echo 'listener 1883' > /mosquitto/config/mosquitto.conf && \

@@ -143,7 +143,7 @@ else
     echo "Creating new container..."
     docker run -d \
         --name "${CONTAINER_NAME}" \
-        --restart always \
+        --restart unless-stopped \
         -p "${MQTT_PORT}:1883" \
         -p "${WS_PORT}:8083" \
         -p "${WEB_PORT}:18083" \
