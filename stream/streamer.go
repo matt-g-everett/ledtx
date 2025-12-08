@@ -61,4 +61,22 @@ func (s *Streamer) Run() {
 func (s *Streamer) Subscribe() {
 	// Register for calibration requests
 	s.calibrate.Subscribe()
+
+	// Subscribe to log topic if mqtt logging is enabled
+	if s.config.Mqtt.MqttLogging {
+		s.subscribeToLog()
+	}
+}
+
+func (s *Streamer) subscribeToLog() {
+	token := s.client.Subscribe(s.config.Mqtt.Topics.Log, 0, s.handleLogMessage)
+	if token.Wait() && token.Error() != nil {
+		log.Printf("Error subscribing to log topic: %v", token.Error())
+	} else {
+		log.Printf("Subscribed to log topic: %s", s.config.Mqtt.Topics.Log)
+	}
+}
+
+func (s *Streamer) handleLogMessage(client mqtt.Client, msg mqtt.Message) {
+	log.Printf("[MQTT LOG] %s: %s", msg.Topic(), string(msg.Payload()))
 }
