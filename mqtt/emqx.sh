@@ -16,9 +16,9 @@ WEB_PORT=18083
 
 # User credentials
 ADMIN_USERNAME="admin"
-ADMIN_PASSWORD="${EMQX_ADMIN_PASSWORD:-change-me-admin}"
+ADMIN_PASSWORD="${MQTT_ADMIN_PASSWORD:-change-me-admin}"
 HOMEAUTO_USERNAME="homeauto"
-HOMEAUTO_PASSWORD="${EMQX_HOMEAUTO_PASSWORD:-change-me-homeauto}"
+HOMEAUTO_PASSWORD="${MQTT_HOMEAUTO_PASSWORD:-change-me-homeauto}"
 
 echo "Setting up EMQX MQTT Broker..."
 
