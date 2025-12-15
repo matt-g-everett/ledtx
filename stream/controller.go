@@ -88,13 +88,14 @@ func NewController(runtimeMs int64, frameRate float64, animationTime time.Durati
 	c.transitionIncrement = 1.0 / (c.frameRate * c.transitionTimeSecs)
 
 	c.animationPlaylist = []string{
+		"gradient:wicked",
+		"multi:wicked",
 		"multi:monokai",
 		//"streak:random",
 		"istripe:70s",
 		"istripe:random",
 		"multi:monokai",
 		"stripes:random",
-		"gradient:purplegoldblue",
 		"multi:purplegoldblue",
 		"istripe:random",
 		"multi:random",
@@ -110,6 +111,7 @@ func NewController(runtimeMs int64, frameRate float64, animationTime time.Durati
 		"rainbow:fixed",
 		"multi:monokai",
 		"stripes:candycane",
+		"multi:wicked",
 		"twinkle:random",
 		"istripe:random",
 		"multi:redgreengold",
@@ -140,6 +142,7 @@ func NewController(runtimeMs int64, frameRate float64, animationTime time.Durati
 		"multi:redgreengold",
 		"istripe:70s",
 		"twinkle:gold",
+		"gradient:wicked",
 		"stripes:random",
 		"multi:random2",
 		"rainbow:random",
@@ -152,6 +155,7 @@ func NewController(runtimeMs int64, frameRate float64, animationTime time.Durati
 		"stripes:candycane",
 		"multi:random",
 		"multi:pinksilverblue",
+		"gradient:wicked",
 		"twinkle:silver",
 		"stripes:random",
 		"multi:redwhiteblue",
@@ -331,7 +335,8 @@ func (c *Controller) getAnimation() (Animation, string) {
 	brightPurple := colorful.Hcl(328.0, 1.0, 0.06)
 	brightPink := colorful.Color{R: 0.45, G: -0.54, B: 0.02}
 	brightOrange := colorful.Color{R: 0.23, G: 0.04, B: -0.87}
-	brightRed := colorful.Color{R: 0.8, G: 0.0, B: 0.00}
+	brightRed := colorful.Color{R: 0.8, G: 0.0, B: 0.0}
+	brightGreen := colorful.Color{R: 0.0, G: 0.6, B: 0.0}
 	brightWhite := colorful.Color{R: 0.08, G: 0.08, B: 0.08}
 	brightBlue := colorful.Hcl(280.0, 1.0, 0.06)
 	brightGold := colorful.Hcl(95.0, 1.0, 0.06)
@@ -423,6 +428,11 @@ func (c *Controller) getAnimation() (Animation, string) {
 		animation = c.createRandomInfinityStripe()
 	case "istripe:70s":
 		animation = c.createPaletteInfinityStripe(seventies)
+	case "gradient:wicked":
+		gradient := c.createStripes([]colorful.Color{brightPink, brightGreen})
+		animation = c.createGradient(gradient, 250, 0.2)
+	case "multi:wicked":
+		animation = c.createMultiTwinkle([]colorful.Color{brightPink, brightGreen})
 	}
 
 	if len(extraInfo) > 0 {

@@ -22,7 +22,7 @@ func NewStreamer(config Config, client mqtt.Client) *Streamer {
 	s := new(Streamer)
 	s.config = config
 	s.client = client
-	s.frameTimeMs = 20 // 20 ms per frame = 50 fps
+	s.frameTimeMs = 21 // 21 ms per frame = ~47.6 fps
 	s.runtimeMs = 0
 
 	// Use a controller as the animation, internally it will control multiple animations
